@@ -149,11 +149,14 @@ def load_spectrum_bundle(config: dict[str, Any]) -> SpectrumBundle:
     exclude_types = data_cfg.get("exclude_experiment_types", [])
     keep = np.ones(len(labels), dtype=bool)
     if include_types:
+        if "experiment_type" not in labels.columns:
+            raise ValueError("include_experiment_types requires an experiment_type column")
         include = {str(value) for value in include_types}
         keep &= labels["experiment_type"].astype(str).isin(include).to_numpy()
     if exclude_types:
-        exclude = {str(value) for value in exclude_types}
-        keep &= ~labels["experiment_type"].astype(str).isin(exclude).to_numpy()
+        if "experiment_type" in labels.columns:
+            exclude = {str(value) for value in exclude_types}
+            keep &= ~labels["experiment_type"].astype(str).isin(exclude).to_numpy()
 
     if not np.all(keep):
         x_raw = x_raw[keep]
