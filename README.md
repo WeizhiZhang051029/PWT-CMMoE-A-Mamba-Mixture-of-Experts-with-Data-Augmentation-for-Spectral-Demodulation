@@ -6,47 +6,43 @@ The official implementation of [**PWT-CMMoE: A Mamba Mixture-of-Experts with Dat
 
 ![PWT-CMMoE Overall Architecture](images/fig01_pwt_cmmoe_overall_architecture.png)
 
-PWT-CMMoE is a physics-guided spectral demodulation framework designed for joint temperature and salinity estimation under limited labelled calibration data.
+We propose PWT-CMMoE, a Mamba mixture-of-experts with physics-guided data augmentation framework for temperature and salinity demodulation from full transmission spectra under data scarcity. PWT generates candidate spectra under anti-resonance constraints and employs a Physics-Consistent Sample Teacher (PCST) to screen and confidence-weight reliable synthetic samples. CMMoE then employs Top-2 routing to select complementary heterogeneous experts, including a bidirectional Mamba expert. Conflict-aware task balancing (CATB), together with PCGrad, further mitigates task imbalance and gradient conflicts between temperature and salinity demodulation during fine-tuning.
 
-The framework combines **Physics-guided WGAN-GP with Teacher (PWT)** for conditional spectral data augmentation and a **Conflict-aware Mamba Mixture-of-Experts (CMMoE)** network for multi-parameter spectral demodulation.
-
-To improve the physical reliability of generated spectra, anti-resonance response constraints are incorporated into the conditional generation process. A **Physics-Consistent Sample Teacher (PCST)** then evaluates, screens, and weights the generated spectra before model pretraining.
-
-For downstream demodulation, CMMoE employs sparse Top-2 routing across heterogeneous MLP, CNN, physics-aware, and Mamba experts. The pretrained model is subsequently adapted using a small number of measured spectra, while conflict-aware task balancing and PCGrad are introduced to alleviate gradient conflicts between temperature and salinity estimation.
 
 ## 🔥 Highlights
 
-* **Physics-guided spectral generation:** introduces anti-resonance constraints into WGAN-GP to improve the physical consistency of synthetic transmission spectra.
-* **Teacher-based sample selection:** uses PCST to screen and assign confidence weights to generated spectra.
-* **Heterogeneous expert collaboration:** integrates MLP, CNN, physics-aware, and Mamba experts for complementary spectral feature extraction.
-* **Sparse expert routing:** activates only the most relevant experts through input-dependent Top-2 routing.
-* **Conflict-aware multi-task learning:** mitigates optimization conflicts between temperature and salinity demodulation.
-* **Data-scarce adaptation:** supports synthetic-data pretraining followed by lightweight fine-tuning on limited measured spectra.
+* **Physics-guided data augmentation:** incorporates anti-resonance constraints into WGAN-GP to enhance the physical consistency of generated transmission spectra.
+* **Physics-Consistent Sample Teacher:** employs PCST to screen generated spectra and assign confidence weights to physically reliable samples.
+* **Heterogeneous sparse expert routing:** adopts Top-2 routing to activate complementary experts for input-adaptive spectral representation learning.
+* **Bidirectional Mamba modeling:** captures long-range dependencies and cross-band correlations within full transmission spectra.
+* **Conflict-aware task balancing:** alleviates task imbalance and gradient conflicts in joint temperature and salinity demodulation.
+
 
 ## 🧩 Framework
 
 The complete PWT-CMMoE pipeline consists of the following stages:
 
 ```text
-Measured spectra
+
+Measured training spectra and labels
        |
        v
 Physics-guided WGAN-GP training
        |
        v
-Condition-labelled spectral generation
+Condition-labelled candidate spectrum generation
        |
        v
-Physics-Consistent Sample Teacher
+PCST screening and confidence weighting
        |
        v
-Synthetic-sample screening and weighting
+High-confidence weighted synthetic spectra
        |
        v
-CMMoE synthetic-data pretraining
+CMMoE pretraining on synthetic spectra
        |
        v
-Adapter fine-tuning on measured spectra
+CATB-guided optimization on measured spectra
        |
        v
 Joint temperature and salinity demodulation
@@ -72,57 +68,46 @@ pip install mamba-ssm --no-build-isolation
 
 The default Mamba expert requires `mamba-ssm`. Please verify that the installed PyTorch, CUDA toolkit, and CUDA driver versions are compatible.
 
+
 ## 📊 Dataset
 
-The experimental transmission spectra and trained checkpoints are not distributed with this repository.
+The experimental spectra and trained checkpoints are not publicly distributed.
 
-Create a folder named `data` in the root directory and organize the dataset as follows:
+Place the raw optical spectrum analyzer files in `data/raw/` and provide the corresponding temperature and salinity labels in `data/labels.csv`:
 
 ```text
-.
-├── data/
-│   ├── spectra.npz
-│   └── labels.csv
-├── configs/
-│   └── config.yaml
-├── scripts/
-│   └── train.py
-├── spectral_moe/
-├── requirements.txt
-└── README.md
+data/
+├── raw/
+│   ├── spectrum_001.csv
+│   ├── spectrum_002.csv
+│   └── ...
+└── labels.csv
 ```
 
-### Spectral Data
+Each CSV file corresponds to one measured transmission spectrum. It contains acquisition metadata followed by a `[TRACE DATA]` section, where each row records the wavelength in nanometres and the corresponding optical power in dBm.
 
-The `spectra.npz` file should contain the following arrays:
+```text
+[TRACE DATA]
+1400.0000, -16.361
+1400.0060, -16.101
+1400.0120, -16.094
+...
+```
 
-| Key             | Shape    | Description                         |
-| --------------- | -------- | ----------------------------------- |
-| `X_raw_dbm`     | `[N, L]` | Raw transmission spectra in dB      |
-| `X_zscore`      | `[N, L]` | Optional z-score-normalized spectra |
-| `wavelength_nm` | `[L]`    | Wavelength axis in nanometres       |
-| `sample_id`     | `[N]`    | Unique sample identifiers           |
+The `labels.csv` file should associate each spectrum with its measurement conditions:
 
-Here, `N` denotes the number of measured spectra and `L` denotes the number of wavelength sampling points.
+| Column          | Description                             |
+| --------------- | --------------------------------------- |
+| `file_name`     | Name of the corresponding spectrum file |
+| `temperature_c` | Temperature in degrees Celsius          |
+| `salinity_ppt`  | Salinity in parts per thousand          |
 
-### Label Data
+The preprocessing pipeline automatically extracts the trace data, aligns the wavelength grids, normalizes the spectra, and constructs the training, validation, and test sets.
 
-The `labels.csv` file should contain the following columns:
-
-| Column            | Description                                |
-| ----------------- | ------------------------------------------ |
-| `sample_id`       | Unique sample identifier                   |
-| `temperature_c`   | Temperature label in degrees Celsius       |
-| `salinity_ppt`    | Salinity label in parts per thousand       |
-| `experiment_type` | Optional experimental-condition identifier |
-
-The values in the `sample_id` column must be consistent with those stored in `spectra.npz`.
-
-The optional `experiment_type` column can be used to exclude specified records or define experimental subsets through `configs/config.yaml`.
 
 ## ⚙️ Configuration
 
-The main training parameters are defined in:
+All experiment settings are specified in:
 
 ```text
 configs/config.yaml
@@ -130,43 +115,41 @@ configs/config.yaml
 
 The configuration file controls:
 
-* dataset paths and data partitions
-* spectral preprocessing
+* dataset paths and data partitioning
+* spectral preprocessing and normalization
 * physics-guided WGAN-GP training
-* synthetic-spectrum generation
-* PCST screening and sample weighting
-* CMMoE architecture
-* sparse routing parameters
+* candidate-spectrum generation
+* PCST-based sample screening and confidence weighting
+* CMMoE architecture and sparse Top-2 routing
 * synthetic-data pretraining
-* adapter fine-tuning
-* multi-task optimization
-* checkpoint and output paths
+* CATB-guided joint optimization
+* checkpoint, prediction, and output paths
 
-Please update the dataset paths and training parameters before running the code.
+Please update the dataset paths and relevant hyperparameters before running the experiments.
+
 
 ## 🚀 Running
 
 ### Complete Training Pipeline
 
-Run the complete PWT-CMMoE training pipeline using:
+Run the complete PWT-CMMoE pipeline with:
 
 ```bash
 python scripts/train.py
 ```
 
-The complete pipeline performs the following operations:
+The pipeline sequentially:
 
 1. trains the physics-guided WGAN-GP;
-2. generates condition-labelled synthetic spectra;
-3. evaluates synthetic spectra using PCST;
-4. screens and weights physically consistent samples;
-5. pretrains the CMMoE regressor using synthetic spectra;
-6. fine-tunes the adapters and prediction heads using measured spectra;
-7. evaluates temperature and salinity demodulation performance.
+2. generates condition-labelled candidate spectra;
+3. screens and confidence-weights synthetic spectra using PCST;
+4. pretrains CMMoE on the selected synthetic spectra;
+5. optimizes CMMoE on measured spectra under CATB;
+6. evaluates joint temperature and salinity demodulation performance.
 
 ### Stage-by-Stage Execution
 
-The individual stages can also be executed separately.
+Each training stage can also be executed independently.
 
 #### 1. Train the Physics-Guided WGAN-GP
 
@@ -175,7 +158,9 @@ python -m spectral_moe.train.train_gan \
   --config configs/config.yaml
 ```
 
-#### 2. Generate Synthetic Spectra
+#### 2. Generate and Screen Synthetic Spectra
+
+Generate condition-labelled candidate spectra:
 
 ```bash
 python -m spectral_moe.train.generate_gan_synthetic \
@@ -184,7 +169,9 @@ python -m spectral_moe.train.generate_gan_synthetic \
   --output outputs/gan/gan_synthetic.npz
 ```
 
-#### 3. Pretrain the CMMoE Regressor
+PCST screening and confidence weighting are performed according to the settings specified in `configs/config.yaml`.
+
+#### 3. Pretrain CMMoE
 
 ```bash
 python -m spectral_moe.train.pretrain_moe \
@@ -192,7 +179,7 @@ python -m spectral_moe.train.pretrain_moe \
   --output-dir outputs/pretrain
 ```
 
-#### 4. Fine-Tune the Adapter
+#### 4. Perform CATB-Guided Optimization
 
 ```bash
 python -m spectral_moe.train.finetune_adapter \
@@ -200,6 +187,9 @@ python -m spectral_moe.train.finetune_adapter \
   --pretrain-dir outputs/pretrain \
   --output-dir outputs/adapter
 ```
+
+During this stage, the pretrained CMMoE is adapted to measured spectra, while CATB dynamically coordinates the temperature and salinity tasks through task prioritization, conflict-aware gating, and PCGrad-based gradient correction.
+
 
 ## 📁 Repository Structure
 
@@ -241,7 +231,7 @@ PWT-CMMoE/
 
 ## 📈 Outputs
 
-The generated files are saved in the `outputs/` directory.
+All generated artifacts are saved in the `outputs/` directory:
 
 ```text
 outputs/
@@ -249,51 +239,52 @@ outputs/
 │   ├── gan_final.pt
 │   └── gan_synthetic.npz
 ├── pretrain/
-│   ├── checkpoints
-│   ├── training logs
-│   └── validation metrics
+│   ├── checkpoints/
+│   ├── training_logs/
+│   └── validation_metrics/
 ├── adapter/
-│   ├── fine-tuned checkpoints
-│   ├── predictions
-│   └── evaluation metrics
+│   ├── fine_tuned_checkpoints/
+│   ├── predictions/
+│   └── evaluation_metrics/
 └── figures/
 ```
 
-The output files may include:
+The outputs include:
 
 * trained model checkpoints
-* generated synthetic spectra
-* PCST confidence scores
-* sample-selection results
+* generated candidate spectra
+* PCST confidence scores and sample-selection results
+* CMMoE pretraining and optimization logs
 * expert-routing statistics
 * temperature and salinity predictions
-* regression evaluation metrics
-* training and validation logs
+* regression metrics and visualization results
 
-Generated checkpoints, synthetic spectra, predictions, and intermediate outputs are ignored by Git by default.
+Generated checkpoints, synthetic spectra, predictions, and intermediate files are excluded from version control by default.
+
 
 ## 📏 Evaluation Metrics
 
-The framework evaluates temperature and salinity demodulation using common regression metrics, including:
+Temperature and salinity demodulation performance is evaluated using three standard regression metrics:
 
 * Mean Absolute Error (MAE)
 * Root Mean Squared Error (RMSE)
 * Coefficient of Determination ((R^2))
-* Relative prediction error
-* Synthetic-spectrum quality metrics
-* Expert-routing and load-balancing statistics
+
+Lower MAE and RMSE values indicate smaller demodulation errors, while a higher (R^2) indicates better agreement between the predicted and measured values.
+
 
 ## 📰 News
 
-* **May 2026** — PWT-CMMoE framework completed
-* **June 2026** — Manuscript prepared
-* **2026** — Source code released
+* **August 2026** — PWT-CMMoE framework completed
+* **August 2026** — Manuscript prepared
+* **August 2026** — Source code released
 
 ## 🙏 Acknowledgements
 
-This project is implemented using PyTorch, scikit-learn, NumPy, SciPy, and Mamba-based sequence modelling tools.
+This project is built upon PyTorch, scikit-learn, NumPy, SciPy, and open-source Mamba implementations.
 
-We sincerely thank the open-source community for providing valuable implementations of generative modelling, state-space sequence modelling, mixture-of-experts learning, and multi-task optimization methods.
+We gratefully acknowledge the open-source community for providing valuable resources in generative modeling, state-space sequence modeling, mixture-of-experts architectures, and multi-task optimization.
+
 
 ## 📖 Citation
 
@@ -303,7 +294,6 @@ If you find this repository useful in your research or project, please consider 
 @article{zhang2026pwtcmmoe,
   title   = {PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity},
   author  = {TODO},
-  journal = {TODO},
   year    = {2026}
 }
 ```
