@@ -1,61 +1,65 @@
-# WGAN-GP MoE for Joint Temperature and Salinity Regression
+# PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity
 
-This repository contains a training implementation for joint prediction of seawater temperature and salinity from transmission spectra. The pipeline uses a physics-guided WGAN-GP to generate condition-labelled spectra, followed by a heterogeneous mixture-of-experts regressor with Top-2 sparse routing and prior-anchored adaptive multi-task learning with PCGrad.
+### [Project Page](https://github.com/WeizhiZhang051029/PWT-CMMoE-A-Mamba-Mixture-of-Experts-with-Data-Augmentation-for-Spectral-Demodulation) | [Paper](#citation)
 
-The repository intentionally excludes datasets, trained checkpoints, experiment logs, ablation studies, baseline models, performance-analysis scripts, and figure-generation code.
+The official implementation of [**PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity**](#citation).
 
-## Repository layout
-
-```text
-configs/config.yaml              training configuration
-scripts/train.py                 single-run training entry point
-spectral_moe/data/               loading, PCA, and physics features
-spectral_moe/models/             WGAN-GP, PINN prior, four-expert MoE, and adapters
-spectral_moe/train/              WGAN-GP, MoE pretraining, and adapter fine-tuning
-spectral_moe/evaluate/           regression and synthetic-sample quality metrics
-```
+PWT-CMMoE is designed for joint temperature and salinity demodulation from full transmission spectra when labelled calibration data are limited. The framework combines Physics-guided WGAN-GP with Teacher (PWT) data augmentation and a conflict-aware Mamba mixture-of-experts (CMMoE) regressor. The generator incorporates anti-resonance constraints, while the Physics-Consistent Sample Teacher (PCST) screens and weights synthetic spectra before MoE pretraining. The regressor uses sparse Top-2 routing across MLP, CNN, physics, and Mamba experts, then applies adaptive multi-task learning with PCGrad during fine-tuning.
 
 ## Installation
 
-Use Python 3.10 or later. Create an environment, install PyTorch appropriate for your CUDA version, then install the remaining dependencies.
+Create a Python environment and install the required packages:
 
 ```bash
+conda create -n pwt_cmmoe python=3.10
+conda activate pwt_cmmoe
 pip install -r requirements.txt
 pip install mamba-ssm --no-build-isolation
 ```
 
-`mamba-ssm` is required by the default Mamba expert. If it is unavailable on your platform, change `heterogeneous_moe.mamba.backend` in the configuration to a supported fallback implemented in your environment.
+Install a PyTorch build compatible with your CUDA environment before running the project. `mamba-ssm` is required by the default Mamba expert.
 
-## Data format
+## Dataset
 
-Place user-supplied data under `data/`. No data files are distributed with this repository.
+The experimental spectra and trained checkpoints are not distributed with this repository. Create a `data` directory in the project root and place your data in the following format:
 
-`data/spectra.npz` must contain these arrays:
+```text
+.
+|-- data/
+|   |-- spectra.npz
+|   `-- labels.csv
+|-- configs/
+|   `-- config.yaml
+|-- scripts/
+|   `-- train.py
+`-- spectral_moe/
+```
+
+`spectra.npz` must contain the following arrays:
 
 | Key | Shape | Description |
 | --- | --- | --- |
 | `X_raw_dbm` | `[N, L]` | Raw transmission spectra in dB |
 | `X_zscore` | `[N, L]` | Optional z-score-normalized spectra |
 | `wavelength_nm` | `[L]` | Wavelength axis in nm |
-| `sample_id` | `[N]` | Sample identifiers matching the CSV |
+| `sample_id` | `[N]` | Sample identifiers |
 
-`data/labels.csv` must contain `sample_id`, `temperature_c`, and `salinity_ppt`. Its row order must match `sample_id` in the NPZ file. An optional `experiment_type` column may be used for filtering.
+`labels.csv` must contain `sample_id`, `temperature_c`, and `salinity_ppt`. The `sample_id` values must align with the NPZ file. An optional `experiment_type` column can be used to exclude specified records through `configs/config.yaml`.
 
-The default configuration trains WGAN-GP on the training partition, generates condition-labelled spectra, applies the spectral quality gate, then pretrains and fine-tunes the MoE.
+## Running
 
-## Training
-
-Run the complete single-seed pipeline:
+Run the complete training pipeline:
 
 ```bash
 python scripts/train.py
 ```
 
-Or run the stages separately:
+The pipeline trains the physics-guided WGAN-GP, generates condition-labelled spectra, applies PCST quality screening, pretrains the CMMoE regressor, and performs adapter fine-tuning.
+
+The stages can also be run separately:
 
 ```bash
-python -m spectral_moe.train.train_gan \
-  --config configs/config.yaml
+python -m spectral_moe.train.train_gan --config configs/config.yaml
 
 python -m spectral_moe.train.generate_gan_synthetic \
   --config configs/config.yaml \
@@ -72,16 +76,23 @@ python -m spectral_moe.train.finetune_adapter \
   --output-dir outputs/adapter
 ```
 
-Use `--skip-gan` or `--skip-pretrain` only when the corresponding compatible artifacts already exist under `outputs/`.
+Generated checkpoints, synthetic spectra, metrics, and predictions are written to `outputs/` and ignored by Git.
 
-## Outputs
-
-Training writes generated artifacts under `outputs/`:
+## Repository Structure
 
 ```text
-outputs/pretrain/                pretrained MoE and preprocessing artifacts
-outputs/adapter/                 adapter checkpoint, metrics, and predictions
-outputs/gan/                     WGAN-GP checkpoint and generated spectra
+configs/                         Training configuration
+scripts/train.py                 Complete single-run pipeline
+spectral_moe/data/               Data loading, PCA, and physics features
+spectral_moe/models/             WGAN-GP, PINN prior, MoE, and adapters
+spectral_moe/train/              Generation, pretraining, and fine-tuning
+spectral_moe/evaluate/           Regression and synthetic-sample quality metrics
 ```
 
-These outputs are ignored by Git and are not part of this source release.
+## Acknowledgements
+
+This project uses PyTorch, scikit-learn, and Mamba-based sequence modelling tools. We thank the open-source community for these resources.
+
+## Citation
+
+Citation information will be added after the manuscript is finalized. If you use this code before then, please cite the project page above.
