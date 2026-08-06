@@ -69,42 +69,6 @@ pip install mamba-ssm --no-build-isolation
 The default Mamba expert requires `mamba-ssm`. Please verify that the installed PyTorch, CUDA toolkit, and CUDA driver versions are compatible.
 
 
-## 📊 Dataset
-
-The experimental spectra and trained checkpoints are not publicly distributed.
-
-Place the raw optical spectrum analyzer files in `data/raw/` and provide the corresponding temperature and salinity labels in `data/labels.csv`:
-
-```text
-data/
-├── raw/
-│   ├── spectrum_001.csv
-│   ├── spectrum_002.csv
-│   └── ...
-└── labels.csv
-```
-
-Each CSV file corresponds to one measured transmission spectrum. It contains acquisition metadata followed by a `[TRACE DATA]` section, where each row records the wavelength in nanometres and the corresponding optical power in dBm.
-
-```text
-[TRACE DATA]
-1400.0000, -16.361
-1400.0060, -16.101
-1400.0120, -16.094
-...
-```
-
-The `labels.csv` file should associate each spectrum with its measurement conditions:
-
-| Column          | Description                             |
-| --------------- | --------------------------------------- |
-| `file_name`     | Name of the corresponding spectrum file |
-| `temperature_c` | Temperature in degrees Celsius          |
-| `salinity_ppt`  | Salinity in parts per thousand          |
-
-The preprocessing pipeline automatically extracts the trace data, aligns the wavelength grids, normalizes the spectra, and constructs the training, validation, and test sets.
-
-
 ## ⚙️ Configuration
 
 All experiment settings are specified in:
