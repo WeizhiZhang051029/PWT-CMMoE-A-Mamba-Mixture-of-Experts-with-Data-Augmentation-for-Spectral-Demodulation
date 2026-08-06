@@ -1,0 +1,184 @@
+seed: 1
+data:
+  npz_path: data/spectra.npz
+  labels_path: data/labels.csv
+  exclude_experiment_types:
+  - stability
+  use_zscore: false
+  input_length: 26668
+  target_names:
+  - temperature_c
+  - salinity_ppt
+  downsample_to: 2048
+  split:
+    method: random
+    val_fraction: 0.2
+    test_fraction: 0.2
+    train_fraction: 1.0
+features:
+  num_dips: 6
+  num_bands: 8
+  tracked_centers_nm:
+  - 1599.0
+  tracked_half_window_nm: 35.0
+pca:
+  variance_threshold: 0.99
+heterogeneous_moe:
+  expert_types:
+  - mlp
+  - cnn
+  - physics
+  - mamba
+  expert_out_dim: 64
+  hidden_dim: 128
+  top_k: 2
+  hsg:
+    mode: sparse
+    temperature: 1.0
+    warmup_epochs: 0
+  dropout: 0.15
+  head_hidden_dim: 64
+  temp_context_out_dim: 64
+  decouple_temperature: true
+  condition_film:
+    enabled: true
+    condition_source: physics
+    condition_dim: 32
+    scale: 0.1
+    dropout: 0.1
+  physics_heads:
+    enabled: true
+    temperature_residual_scale_init: 0.1
+    salinity_residual_scale_init: 0.1
+  mamba:
+    backend: mamba2
+    spectral_length: 2048
+    d_model: 64
+    d_state: 64
+    patch_size: 16
+pretrain:
+  output_dir: outputs/pretrain
+  gan_synthetic_path: outputs/gan/gan_synthetic.npz
+  audit_gan_synthetic_quality: true
+  synthetic_quality_gate:
+    enabled: true
+    max_conditional_trough_mae_nm: 16.0
+    manifold_percentile: 95.0
+    target_accepted_samples: 2000
+    min_accepted_samples: 1200
+    hard_reject_trough_multiplier: 2.0
+    min_accept_fraction: 0.05
+    confidence_weighting: true
+    confidence_floor: 0.1
+    cmi_pcqd_selector:
+      enabled: true
+      soft_trough_mae_nm: 8.0
+      hard_reject_trough_mae_nm: 16.0
+      condition_bins:
+      - 4
+      - 4
+      diversity_weight: 0.3
+      min_per_nonempty_bin: 50
+      knn_k: 7
+      tau_quantile: 0.9
+      w_phys: 0.2
+      w_manifold: 0.15
+      w_temp: 0.2
+      w_sal: 0.45
+      confidence_clip:
+      - 0.25
+      - 2.0
+    physics_quality_diversity_selector:
+      enabled: false
+  epochs: 150
+  batch_size: 32
+  learning_rate: 0.0003
+  weight_decay: 0.0002
+  temperature_weight: 3.5
+  salinity_weight: 1.0
+  load_balance_weight: 0.01
+  synthetic_weight: 0.05
+  decouple_temperature_pretrain: true
+  synthetic_only: true
+adapter:
+  enabled: true
+  bottleneck_dim: 8
+  dropout: 0.15
+  scale: 1.0
+  exclude_modules:
+  - temperature_head
+  - salinity_head
+  - temp_encoder.proj
+adapter_finetune:
+  output_dir: outputs/adapter
+  epochs: 500
+  batch_size: 16
+  learning_rate: 0.0003
+  weight_decay: 0.005
+  temperature_weight: 2.5
+  salinity_weight: 1.0
+  load_balance_weight: 0.005
+  early_stop_patience: 60
+  early_stop_warmup_epochs: 50
+  val_ema_alpha: 0.3
+  selection_metric_kind: weighted_mae
+  selection_temperature_weight: 2.0
+  selection_salinity_weight: 1.0
+  scheduler_T0: 150
+  scheduler_T_mult: 2
+  trainable_name_filters:
+  - temperature_head
+  - salinity_head
+  - temp_encoder
+  ssl_consistency_weight: 0.08
+  ssl_noise_std: 0.05
+  ssl_warmup_epochs: 30
+  use_adaptive_mtl: true
+  use_pcgrad: true
+  mtl_alpha: 1.0
+  mtl_beta: 0.0
+  mtl_gamma: 0.5
+  mtl_ema_span: 10
+  mtl_min_weight: 0.55
+  mtl_min_weight_S: 0.15
+  mtl_prior_lambda_T: 0.714
+  mtl_prior_strength: 0.7
+gan:
+  enabled: true
+  variant: wgan_gp
+  representation: pca
+  pca:
+    variance_threshold: 0.99
+  output_dir: outputs/gan
+  epochs: 300
+  batch_size: 16
+  latent_dim: 64
+  learning_rate: 0.0001
+  critic_steps: 3
+  gradient_penalty_weight: 20.0
+  critic_l2_penalty: 0.001
+  critic_grad_clip: 5.0
+  generator_grad_clip: 5.0
+  divergence_warn_threshold: 10000.0
+  n_synthetic: 5000
+  sample_batch_size: 64
+  smoothness_weight: 0.001
+  moment_weight: 1.0
+  pinn:
+    enabled: true
+    tracked_centers_nm:
+    - 1599.0
+    half_window_nm: 35.0
+    auto_calibrate: true
+    wall_thickness_um: 26.5
+    candidate_order_min: 16
+    candidate_order_max: 22
+    max_calibration_error_nm: 5.0
+    max_nominal_thickness_deviation_um: 2.0
+    max_thickness_correction_um: 0.5
+    max_cladding_index_correction: 0.005
+    fixed_point_steps: 12
+    strict_weight: 0.15
+    strict_scale_nm: 10.0
+    empirical_soft_weight: 0.1
+    soft_scale_nm: 10.0

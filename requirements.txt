@@ -1,0 +1,9 @@
+numpy>=1.24
+pandas>=2.0
+PyYAML>=6.0
+scikit-learn>=1.3
+scipy>=1.10
+torch>=2.1
+
+# Install mamba-ssm separately when using the default Mamba expert:
+# pip install mamba-ssm --no-build-isolation
