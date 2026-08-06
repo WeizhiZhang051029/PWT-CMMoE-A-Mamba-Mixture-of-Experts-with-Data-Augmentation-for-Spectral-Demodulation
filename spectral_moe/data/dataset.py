@@ -99,6 +99,8 @@ def load_spectrum_bundle(config: dict[str, Any]) -> SpectrumBundle:
         raise ValueError("X_zscore must have the same shape as X_raw_dbm")
     if wavelength_nm.ndim != 1 or len(wavelength_nm) != x_raw.shape[1]:
         raise ValueError("wavelength_nm must be a 1-D axis matching the spectrum width")
+    if not np.isfinite(wavelength_nm).all() or np.any(np.diff(wavelength_nm) == 0):
+        raise ValueError("wavelength_nm must be finite with unique sample positions")
     if len(sample_id) != x_raw.shape[0]:
         raise ValueError("sample_id length must match the number of spectra")
 
@@ -149,9 +151,11 @@ def load_spectrum_bundle(config: dict[str, Any]) -> SpectrumBundle:
     x = x_model_zscore if use_zscore else x_model_raw
 
     labels = pd.read_csv(labels_path)
+    if len(labels) != len(sample_id):
+        raise ValueError("labels row count must match the number of spectra")
     if "sample_id" in labels.columns:
         label_ids = labels["sample_id"].astype(str).to_numpy()
-        if len(label_ids) == len(sample_id) and not np.all(label_ids == sample_id):
+        if not np.all(label_ids == sample_id):
             raise ValueError("sample_id order mismatch between matrix and labels")
 
     missing_targets = [name for name in target_names if name not in labels.columns]
