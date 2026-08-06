@@ -95,4 +95,13 @@ This project uses PyTorch, scikit-learn, and Mamba-based sequence modelling tool
 
 ## Citation
 
-Citation information will be added after the manuscript is finalized. If you use this code before then, please cite the project page above.
+If you find this repository useful in your research/project, please consider citing the paper:
+
+```bibtex
+
+@article{li2026pscmoe,
+  title={PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity},
+  author={1111},
+  year={2026}
+}
+```
