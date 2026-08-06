@@ -3,6 +3,12 @@ from __future__ import annotations
 import numpy as np
 
 
+def _trapezoid(y: np.ndarray, x: np.ndarray) -> float:
+    if hasattr(np, "trapezoid"):
+        return float(np.trapezoid(y, x))
+    return float(np.sum((y[1:] + y[:-1]) * np.diff(x) * 0.5))
+
+
 def _safe_stat(values: np.ndarray, fn, default: float = 0.0) -> float:
     if values.size == 0:
         return default
@@ -82,7 +88,7 @@ def extract_physics_features(
             float(np.max(y) - np.min(y)),
             float(wavelength_nm[argmin]),
             float(wavelength_nm[argmax]),
-            float(np.trapezoid(y, wavelength_nm)),
+            _trapezoid(y, wavelength_nm),
             float(np.mean(dy)),
             float(np.std(dy)),
             float(np.std(ddy)),

@@ -85,9 +85,22 @@ def load_spectrum_bundle(config: dict[str, Any]) -> SpectrumBundle:
 
     payload = np.load(npz_path, allow_pickle=False)
     x_raw = payload["X_raw_dbm"].astype(np.float32)
-    x_zscore = payload["X_zscore"].astype(np.float32)
+    if "X_zscore" in payload:
+        x_zscore = payload["X_zscore"].astype(np.float32)
+    else:
+        x_zscore = x_raw - x_raw.mean(axis=1, keepdims=True)
+        x_zscore /= np.maximum(x_raw.std(axis=1, keepdims=True), 1e-8)
+        x_zscore = x_zscore.astype(np.float32)
     sample_id = payload["sample_id"].astype(str)
     wavelength_nm = payload["wavelength_nm"].astype(np.float64)
+    if x_raw.ndim != 2:
+        raise ValueError("X_raw_dbm must have shape [n_samples, n_points]")
+    if x_zscore.shape != x_raw.shape:
+        raise ValueError("X_zscore must have the same shape as X_raw_dbm")
+    if wavelength_nm.ndim != 1 or len(wavelength_nm) != x_raw.shape[1]:
+        raise ValueError("wavelength_nm must be a 1-D axis matching the spectrum width")
+    if len(sample_id) != x_raw.shape[0]:
+        raise ValueError("sample_id length must match the number of spectra")
 
     if align_npz:
 
@@ -125,7 +138,7 @@ def load_spectrum_bundle(config: dict[str, Any]) -> SpectrumBundle:
         target_length = int(downsample_to)
         if target_length < 2:
             raise ValueError("data.downsample_to must be at least 2")
-        if target_length < len(wavelength_nm):
+        if target_length != len(wavelength_nm):
             wl_target = np.linspace(
                 float(wavelength_nm[0]), float(wavelength_nm[-1]), target_length
             )
