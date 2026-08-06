@@ -15,8 +15,6 @@ import pandas as pd
 
 from spectral_moe.data.dataset import load_spectrum_bundle
 
-from spectral_moe.data.pca_reducer import SpectralPCAReducer
-
 from spectral_moe.data.physical_features import (
 
     apply_feature_standardizer,
@@ -71,21 +69,21 @@ def standardize_labels(
     return (*scaled, mean.astype(np.float32), std.astype(np.float32))
 
 
-def standardize_pca(
+def standardize_spectrum(
 
-    z_train: np.ndarray,
+    spectrum_train: np.ndarray,
 
     *others: np.ndarray,
 
 ) -> tuple[tuple[np.ndarray, ...], np.ndarray, np.ndarray]:
 
-    mean = z_train.mean(axis=0, keepdims=True)
+    mean = spectrum_train.mean(axis=0, keepdims=True)
 
-    std = z_train.std(axis=0, keepdims=True)
+    std = spectrum_train.std(axis=0, keepdims=True)
 
     std[std < 1e-8] = 1.0
 
-    scaled = tuple(((a - mean) / std).astype(np.float32) for a in (z_train, *others))
+    scaled = tuple(((a - mean) / std).astype(np.float32) for a in (spectrum_train, *others))
 
     return scaled, mean.astype(np.float32), std.astype(np.float32)
 
@@ -101,14 +99,14 @@ def load_balance_loss_fn(route_weights: "torch.Tensor") -> "torch.Tensor":
     return torch.sum(expert_frac * torch.softmax(expert_frac, dim=0)) * n_experts
 
 
-class PCASpectralDataset:
+class SpectralDataset:
 
 
     def __init__(
 
         self,
 
-        z_pca: np.ndarray,
+        spectrum_features: np.ndarray,
 
         physics: np.ndarray,
 
@@ -122,7 +120,7 @@ class PCASpectralDataset:
 
         import torch
 
-        self.z = torch.from_numpy(z_pca.astype(np.float32))
+        self.z = torch.from_numpy(spectrum_features.astype(np.float32))
 
         self.phy = torch.from_numpy(physics.astype(np.float32))
 
@@ -184,7 +182,7 @@ def _apply_hsg_schedule(model, moe_cfg, epoch):
 
 def pretrain_moe(
 
-    z_all_norm: np.ndarray,
+    spectrum_all_norm: np.ndarray,
 
     phys_all: np.ndarray,
 
@@ -211,9 +209,9 @@ def pretrain_moe(
     from torch.utils.data import DataLoader
 
 
-    dataset = PCASpectralDataset(
+    dataset = SpectralDataset(
 
-        z_all_norm, phys_all, y_all_norm, sample_weight,
+        spectrum_all_norm, phys_all, y_all_norm, sample_weight,
 
         raw_spectrum=raw_spectrum_all,
 
@@ -236,7 +234,7 @@ def pretrain_moe(
 
     model = HeterogeneousMoE(
 
-        pca_dim=z_all_norm.shape[1],
+        spectrum_dim=spectrum_all_norm.shape[1],
 
         phys_dim=phys_all.shape[1],
 
@@ -285,7 +283,7 @@ def pretrain_moe(
 
             result = model.temp_encoder.load_state_dict(state, strict=False)
 
-            print(f"[Phase 3] SpectralTempEncoder 预训练权重已加载: {enc_path}")
+            print(f"[Phase 3] loaded SpectralTempEncoder weights from {enc_path}")
 
             if result.missing_keys:
 
@@ -297,11 +295,11 @@ def pretrain_moe(
 
         else:
 
-            print(f"[WARNING] masked_encoder_path 不存在，跳过权重迁移: {enc_path}")
+            print(f"[warning] masked encoder checkpoint not found: {enc_path}")
 
     elif masked_encoder_path and model.temp_encoder is None:
 
-        print("[WARNING] temp_encoder=None（temp_context_out_dim=0），跳过权重迁移")
+        print("[warning] temperature encoder is disabled because temp_context_out_dim=0")
 
 
     temp_w = float(pretrain_cfg.get("temperature_weight", 1.5))
@@ -401,7 +399,11 @@ def pretrain_moe(
 
             saved_cfg["temp_context_out_dim"] = temp_context_out_dim
 
-            torch.save({"model": model.state_dict(), "moe_cfg": saved_cfg},
+            torch.save({
+                "model": model.state_dict(),
+                "moe_cfg": saved_cfg,
+                "spectrum_dim": int(spectrum_all_norm.shape[1]),
+            },
 
                        output_dir / "pretrained_moe_best.pt")
 
@@ -414,7 +416,7 @@ def pretrain_moe(
 
     model.load_state_dict(ckpt["model"])
 
-    print(f"[Phase 3] MoE 预训练完成，最佳 loss={best_loss:.6f}")
+    print(f"[Phase 3] MoE pretraining complete, best loss={best_loss:.6f}")
 
     return model
 
@@ -458,7 +460,7 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    print(f"[设备] {device}")
+    print(f"[device] {device}")
 
 
     bundle = load_spectrum_bundle(config)
@@ -488,9 +490,9 @@ def main() -> None:
 
         train_idx = subsample_train_indices(train_idx, fraction=data_fraction, seed=split_seed + 20000)
 
-        print(f"[数据] data_fraction={data_fraction:.2f}，训练集子采样后={len(train_idx)}")
+        print(f"[data] fraction={data_fraction:.2f}, training samples={len(train_idx)}")
 
-    print(f"[数据] 训练={len(train_idx)}, 验证={len(val_idx)}, 测试={len(test_idx)}")
+    print(f"[data] train={len(train_idx)}, validation={len(val_idx)}, test={len(test_idx)}")
 
 
     feat_cfg = config.get("features", {})
@@ -528,38 +530,15 @@ def main() -> None:
 
     ]
 
-    print(f"[物理特征] 维度={physics.shape[1]}, 波谷索引={trough_indices}")
+    print(f"[physics features] dimension={physics.shape[1]}, trough indices={trough_indices}")
 
 
-    pca_cfg = config.get("pca", {})
-
-    reducer = SpectralPCAReducer(
-
-        n_components=pca_cfg.get("n_components", None),
-
-        variance_threshold=float(pca_cfg.get("variance_threshold", 0.95)),
-
+    spectrum_train = bundle.x[train_idx].astype(np.float32)
+    spectrum_val = bundle.x[val_idx].astype(np.float32)
+    spectrum_test = bundle.x[test_idx].astype(np.float32)
+    (spectrum_train_norm, spectrum_val_norm, spectrum_test_norm), spectrum_mean, spectrum_std = standardize_spectrum(
+        spectrum_train, spectrum_val, spectrum_test
     )
-
-    reducer.fit(bundle.x_raw_dbm[train_idx])
-
-    reducer.save(Path(output_dir) / "pca_reducer.npz")
-
-    k = reducer.n_components_selected_
-
-    ev = reducer.explained_variance_at_k(k)
-
-    print(f"[PCA] k={k}, 累积解释方差={ev:.4f}")
-
-
-    z_train = reducer.transform(bundle.x_raw_dbm[train_idx])
-
-    z_val = reducer.transform(bundle.x_raw_dbm[val_idx])
-
-    z_test = reducer.transform(bundle.x_raw_dbm[test_idx])
-
-
-    (z_train_norm, z_val_norm, z_test_norm), z_mean, z_std = standardize_pca(z_train, z_val, z_test)
 
 
     y_results = standardize_labels(bundle.y[train_idx], bundle.y[val_idx], bundle.y[test_idx])
@@ -573,7 +552,7 @@ def main() -> None:
 
         Path(output_dir) / "normalization.npz",
 
-        z_mean=z_mean, z_std=z_std,
+        spectrum_mean=spectrum_mean, spectrum_std=spectrum_std,
 
         y_mean=y_mean, y_std=y_std,
 
@@ -595,29 +574,28 @@ def main() -> None:
 
         payload = np.load(gan_synthetic_path, allow_pickle=False)
 
-        if "x_raw" not in payload or "y" not in payload:
+        if "x_spectrum" not in payload or "y" not in payload:
 
-            raise ValueError("GAN augmentation file must contain x_raw and y")
+            raise ValueError("GAN augmentation file must contain x_spectrum and y")
 
-        x_synth_raw = np.asarray(payload["x_raw"], dtype=np.float32)
+        x_synth_spectrum = np.asarray(payload["x_spectrum"], dtype=np.float32)
 
         y_synth_raw = np.asarray(payload["y"], dtype=np.float32)
 
-        if x_synth_raw.ndim != 2 or x_synth_raw.shape[1] != bundle.x_raw_dbm.shape[1]:
+        if x_synth_spectrum.ndim != 2 or x_synth_spectrum.shape[1] != bundle.x.shape[1]:
+            raise ValueError("GAN synthetic spectra must use the configured resampled wavelength grid")
 
-            raise ValueError("GAN synthetic spectrum width does not match the real raw spectrum")
-
-        if y_synth_raw.shape != (len(x_synth_raw), 2):
+        if y_synth_raw.shape != (len(x_synth_spectrum), 2):
 
             raise ValueError("GAN synthetic labels must have shape [n, 2]")
 
-        n_synthetic = len(x_synth_raw)
+        n_synthetic = len(x_synth_spectrum)
 
-        z_synth_norm = ((reducer.transform(x_synth_raw) - z_mean) / z_std).astype(np.float32)
+        spectrum_synth_norm = ((x_synth_spectrum - spectrum_mean) / spectrum_std).astype(np.float32)
 
         phys_synth_raw, _ = extract_physics_features(
 
-            x_synth_raw, bundle.wavelength_nm,
+            x_synth_spectrum, bundle.input_wavelength_nm,
 
             num_dips=int(feat_cfg.get("num_dips", 6)),
 
@@ -649,10 +627,17 @@ def main() -> None:
 
             expected_wavelengths = predict_forward_troughs(y_synth_raw, forward_calibrator["coefficients"])
 
+            audit_points = min(128, spectrum_train_norm.shape[1])
+            audit_indices = np.linspace(
+                0, spectrum_train_norm.shape[1] - 1, audit_points
+            ).round().astype(int)
+            audit_real = spectrum_train_norm[:, audit_indices]
+            audit_synthetic = spectrum_synth_norm[:, audit_indices]
+
 
             quality = synthetic_quality_report(
 
-                z_train_norm, z_synth_norm,
+                audit_real, audit_synthetic,
 
                 physics[train_idx][:, tracked_distribution_idx], phys_synth_raw[:, tracked_distribution_idx],
 
@@ -676,7 +661,7 @@ def main() -> None:
 
                 accepted, gate_audit = synthetic_acceptance_mask(
 
-                    z_train_norm, z_synth_norm, observed_wavelengths, expected_wavelengths,
+                    audit_real, audit_synthetic, observed_wavelengths, expected_wavelengths,
 
                     max_conditional_trough_mae_nm=float(
 
@@ -703,7 +688,7 @@ def main() -> None:
 
                     "target_accepted_samples",
 
-                    round(len(z_train_norm) / synthetic_weight_cfg),
+                    round(len(spectrum_train_norm) / synthetic_weight_cfg),
 
                 ))
 
@@ -731,17 +716,17 @@ def main() -> None:
 
                         accepted_idx = np.sort(rng.choice(accepted_idx, size=target_accepted, replace=False))
 
-                    x_synth_raw = x_synth_raw[accepted_idx]
+                    x_synth_spectrum = x_synth_spectrum[accepted_idx]
 
                     y_synth_raw = y_synth_raw[accepted_idx]
 
-                    z_synth_norm = z_synth_norm[accepted_idx]
+                    spectrum_synth_norm = spectrum_synth_norm[accepted_idx]
 
                     phys_synth_raw = phys_synth_raw[accepted_idx]
 
                     phys_synth = phys_synth[accepted_idx]
 
-                    n_synthetic = len(x_synth_raw)
+                    n_synthetic = len(x_synth_spectrum)
 
                     quality["quality_gate"]["fallback_to_real_only"] = False
 
@@ -771,7 +756,7 @@ def main() -> None:
 
     print("\n" + "=" * 60)
 
-    print("Phase 3: Physics-Guided HeterogeneousMoE 预训练")
+    print("Phase 3: Physics-Guided HeterogeneousMoE pretraining")
 
     print("=" * 60)
 
@@ -780,7 +765,7 @@ def main() -> None:
 
         y_synth_norm = ((y_synth_raw - y_mean) / y_std).astype(np.float32)
 
-        z_all_norm = np.concatenate([z_train_norm, z_synth_norm], axis=0)
+        spectrum_all_norm = np.concatenate([spectrum_train_norm, spectrum_synth_norm], axis=0)
 
         phys_all = np.concatenate([phys_train, phys_synth], axis=0)
 
@@ -788,7 +773,7 @@ def main() -> None:
 
     else:
 
-        z_all_norm = z_train_norm
+        spectrum_all_norm = spectrum_train_norm
 
         phys_all = phys_train
 
@@ -806,7 +791,7 @@ def main() -> None:
 
     if not decouple_temp_pretrain:
 
-        print("[Phase 3] decouple_temperature=False（预训练阶段温度损失塑造 backbone）")
+        print("[Phase 3] decouple_temperature=False (temperature loss updates the backbone)")
 
 
     _uses_raw_spectrum = int(moe_cfg.get("temp_context_out_dim", 0)) > 0 or (
@@ -821,7 +806,7 @@ def main() -> None:
 
             raw_spectrum_all = np.concatenate(
 
-                [bundle.x_raw_dbm[train_idx].astype(np.float32), x_synth_raw.astype(np.float32)],
+                [bundle.x[train_idx].astype(np.float32), x_synth_spectrum.astype(np.float32)],
 
                 axis=0,
 
@@ -829,7 +814,7 @@ def main() -> None:
 
         else:
 
-            raw_spectrum_all = bundle.x_raw_dbm[train_idx].astype(np.float32)
+            raw_spectrum_all = bundle.x[train_idx].astype(np.float32)
 
     else:
 
@@ -838,32 +823,32 @@ def main() -> None:
 
     if n_synthetic > 0:
 
-        print(f"  训练样本: 真实={len(z_train_norm)}, 合成={len(z_synth_norm)}, 合计={len(z_all_norm)}")
+        print(f"  training samples: real={len(spectrum_train_norm)}, synthetic={len(spectrum_synth_norm)}, total={len(spectrum_all_norm)}")
 
         synthetic_weight = float(pretrain_cfg.get("synthetic_weight", 0.25))
 
         sample_weight = np.concatenate([
 
-            np.ones(len(z_train_norm), dtype=np.float32),
+            np.ones(len(spectrum_train_norm), dtype=np.float32),
 
-            np.full(len(z_synth_norm), synthetic_weight, dtype=np.float32),
+            np.full(len(spectrum_synth_norm), synthetic_weight, dtype=np.float32),
 
         ])
 
     else:
 
-        print(f"  训练样本: 真实={len(z_train_norm)}（无合成数据）")
+        print(f"  training samples: real={len(spectrum_train_norm)} (no synthetic data)")
 
         synthetic_weight = 0.0
 
-        sample_weight = np.ones(len(z_train_norm), dtype=np.float32)
+        sample_weight = np.ones(len(spectrum_train_norm), dtype=np.float32)
 
 
     if n_synthetic > 0:
 
-        real_total_weight = float(len(z_train_norm))
+        real_total_weight = float(len(spectrum_train_norm))
 
-        synthetic_total_weight = float(len(z_synth_norm)) * synthetic_weight
+        synthetic_total_weight = float(len(spectrum_synth_norm)) * synthetic_weight
 
         synthetic_to_real_weight_ratio = (
 
@@ -885,7 +870,7 @@ def main() -> None:
 
     else:
 
-        real_total_weight = float(len(z_train_norm))
+        real_total_weight = float(len(spectrum_train_norm))
 
         synthetic_total_weight = 0.0
 
@@ -894,7 +879,7 @@ def main() -> None:
 
     moe_model = pretrain_moe(
 
-        z_all_norm, phys_all, y_all_norm, sample_weight,
+        spectrum_all_norm, phys_all, y_all_norm, sample_weight,
 
         trough_indices, moe_cfg_for_pretrain, pretrain_cfg,
 
@@ -911,11 +896,11 @@ def main() -> None:
 
     moe_model.eval()
 
-    val_ds = PCASpectralDataset(
+    val_ds = SpectralDataset(
 
-        z_val_norm, phys_val, y_val_norm,
+        spectrum_val_norm, phys_val, y_val_norm,
 
-        raw_spectrum=bundle.x_raw_dbm[val_idx] if _uses_raw_spectrum else None,
+        raw_spectrum=bundle.x[val_idx] if _uses_raw_spectrum else None,
 
     )
 
@@ -947,22 +932,20 @@ def main() -> None:
 
         metrics = regression_metrics(y_true_s, y_pred_s, bundle.target_names)
 
-        print(f"[验证集指标] {metrics}")
+        print(f"[validation metrics] {metrics}")
 
     else:
 
         metrics = {}
 
-        print("[验证集指标] 跳过（无验证样本）")
+        print("[validation] skipped because the validation split is empty")
 
 
     write_json(Path(output_dir) / "pretrain_metrics.json", {
 
         "val_metrics": metrics,
 
-        "pca_k": k,
-
-        "pca_explained_variance": ev,
+        "spectrum_length": int(bundle.x.shape[1]),
 
         "n_synthetic": n_synthetic,
 
@@ -980,7 +963,7 @@ def main() -> None:
 
     })
 
-    print(f"\n[完成] 预训练结果保存至：{output_dir}")
+    print(f"\n[complete] pretraining results saved to {output_dir}")
 
 
 if __name__ == "__main__":

@@ -13,8 +13,6 @@ import numpy as np
 
 from spectral_moe.data.dataset import TorchSpectrumDataset, load_spectrum_bundle
 
-from spectral_moe.data.pca_reducer import SpectralPCAReducer
-
 from spectral_moe.models.antiresonance_pinn import (
 
     AntiResonanceConfig,
@@ -34,10 +32,6 @@ from spectral_moe.models.gan import (
     ConditionalCritic,
 
     ConditionalGenerator,
-
-    ConditionalVectorCritic,
-
-    ConditionalVectorGenerator,
 
     gradient_penalty,
 
@@ -139,35 +133,8 @@ def main() -> None:
 
     train_spectra = bundle.x[train_idx].astype(np.float32)
 
-    representation = str(gan_cfg.get("representation", "raw")).lower()
-
-    pca_components = pca_mean = None
-
-    if representation == "pca":
-
-        pca_cfg = gan_cfg.get("pca", {}) or {}
-
-        reducer = SpectralPCAReducer(
-
-            n_components=pca_cfg.get("n_components"),
-
-            variance_threshold=float(pca_cfg.get("variance_threshold", 0.99)),
-
-        ).fit(train_spectra)
-
-        representation_train = reducer.transform(train_spectra)
-
-        pca_components = reducer.components_.astype(np.float32)
-
-        pca_mean = reducer.mean_.astype(np.float32)
-
-    elif representation == "raw":
-
-        representation_train = train_spectra
-
-    else:
-
-        raise ValueError("gan.representation must be 'raw' or 'pca'")
+    representation = "resampled_spectrum"
+    representation_train = train_spectra
 
     spectrum_mean = np.asarray(representation_train.mean(axis=0, keepdims=True), dtype=np.float32)
 
@@ -188,23 +155,9 @@ def main() -> None:
 
     spectrum_std_t = torch.as_tensor(spectrum_std, device=device, dtype=torch.float32)
 
-    pca_components_t = None if pca_components is None else torch.as_tensor(pca_components, device=device)
-
-    pca_mean_t = None if pca_mean is None else torch.as_tensor(pca_mean, device=device)
-
     latent_dim = int(gan_cfg.get("latent_dim", 64))
-
-    if representation == "pca":
-
-        generator = ConditionalVectorGenerator(latent_dim, condition_dim=2, output_dim=normalized_train_spectra.shape[1]).to(device)
-
-        critic = ConditionalVectorCritic(condition_dim=2, input_dim=normalized_train_spectra.shape[1]).to(device)
-
-    else:
-
-        generator = ConditionalGenerator(latent_dim, condition_dim=2, output_length=bundle.x.shape[1]).to(device)
-
-        critic = ConditionalCritic(condition_dim=2, input_length=bundle.x.shape[1]).to(device)
+    generator = ConditionalGenerator(latent_dim, condition_dim=2, output_length=bundle.x.shape[1]).to(device)
+    critic = ConditionalCritic(condition_dim=2, input_length=bundle.x.shape[1]).to(device)
 
     learning_rate = float(gan_cfg.get("learning_rate", 1e-4))
 
@@ -371,7 +324,7 @@ def main() -> None:
 
         soft_coefficients = fit_empirical_soft_guide(
 
-            bundle.x[train_idx], bundle.y[train_idx], bundle.wavelength_nm, centers,
+            bundle.x[train_idx], bundle.y[train_idx], bundle.input_wavelength_nm, centers,
 
             half_window_nm=float(pinn_cfg.get("half_window_nm", 35.0)),
 
@@ -379,7 +332,7 @@ def main() -> None:
 
         soft_coefficients = torch.from_numpy(soft_coefficients).to(device=device, dtype=torch.float32)
 
-        wavelength_grid = torch.as_tensor(bundle.wavelength_nm, device=device, dtype=torch.float32)
+        wavelength_grid = torch.as_tensor(bundle.input_wavelength_nm, device=device, dtype=torch.float32)
 
         g_opt.add_param_group({"params": physics.parameters()})
 
@@ -393,10 +346,6 @@ def main() -> None:
         for batch in loader:
 
             real = batch["x"].to(device)
-
-            if representation == "pca":
-
-                real = real.squeeze(1)
 
             cond = batch["y"].to(device)
 
@@ -442,13 +391,7 @@ def main() -> None:
 
                 g_loss = r3gan_generator_loss(critic, real, fake, cond)
 
-            if representation == "pca":
-
-                fake_raw_for_regularizers = (fake * spectrum_std_t + spectrum_mean_t) @ pca_components_t + pca_mean_t
-
-            else:
-
-                fake_raw_for_regularizers = fake * spectrum_std_t + spectrum_mean_t
+            fake_raw_for_regularizers = fake * spectrum_std_t + spectrum_mean_t
 
             g_loss = g_loss + smooth_weight * smoothness_loss(fake_raw_for_regularizers)
 
@@ -512,7 +455,7 @@ def main() -> None:
 
                                     split_meta, condition_mean, condition_std, spectrum_mean, spectrum_std,
 
-                                    representation, pca_components, pca_mean, variant),
+                                    representation, variant),
 
                 Path(output_dir) / f"gan_epoch_{epoch}.pt",
 
@@ -524,7 +467,7 @@ def main() -> None:
 
                             split_meta, condition_mean, condition_std, spectrum_mean, spectrum_std,
 
-                            representation, pca_components, pca_mean, variant),
+                            representation, variant),
 
         Path(output_dir) / "gan_final.pt",
 
@@ -552,7 +495,7 @@ def _checkpoint_payload(generator, critic, physics, soft_coefficients, config, s
 
                         condition_mean, condition_std, spectrum_mean, spectrum_std,
 
-                        representation, pca_components, pca_mean, variant):
+                        representation, variant):
 
     return {
 
@@ -577,10 +520,6 @@ def _checkpoint_payload(generator, critic, physics, soft_coefficients, config, s
         "spectrum_std": spectrum_std,
 
         "representation": representation,
-
-        "pca_components": pca_components,
-
-        "pca_mean": pca_mean,
 
         "gan_variant": variant,
 

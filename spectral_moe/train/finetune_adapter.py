@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 
 from spectral_moe.data.dataset import load_spectrum_bundle
-from spectral_moe.data.pca_reducer import SpectralPCAReducer
 from spectral_moe.data.physical_features import apply_feature_standardizer, extract_physics_features
 from spectral_moe.evaluate.metrics import regression_metrics
 from spectral_moe.train.physics_consistency import fit_forward_feature_calibrator, fit_forward_trough_calibrator
@@ -29,19 +28,19 @@ from spectral_moe.utils.seed import set_seed
 from spectral_moe.utils.splits import resolve_split_seed, split_from_config, subsample_train_indices
 
 
-class PCASpectralDataset:
+class SpectralDataset:
     """Dataset used during supervised adapter fine-tuning."""
 
     def __init__(
         self,
-        z_pca: np.ndarray,
+        spectrum_features: np.ndarray,
         physics: np.ndarray,
         y: np.ndarray | None = None,
         raw_spectrum: np.ndarray | None = None,
         forward_physics: np.ndarray | None = None,
     ) -> None:
         import torch
-        self.z = torch.from_numpy(z_pca.astype(np.float32))
+        self.z = torch.from_numpy(spectrum_features.astype(np.float32))
         self.phy = torch.from_numpy(physics.astype(np.float32))
         self.y = None if y is None else torch.from_numpy(y.astype(np.float32))
         self.raw = None if raw_spectrum is None else torch.from_numpy(raw_spectrum.astype(np.float32))
@@ -78,17 +77,15 @@ def _load_pretrained_moe(
         meta = json.load(f)
     trough_indices = meta.get("trough_indices", [])
 
-    reducer = SpectralPCAReducer.load(pretrain_dir / "pca_reducer.npz")
-    k = reducer.n_components_selected_
-
     state = ckpt["model"]
     shared_proj_weight = state["shared_proj.1.weight"]
     in_dim = shared_proj_weight.shape[1]
-    phys_dim = in_dim - k
+    spectrum_dim = int(ckpt["spectrum_dim"])
+    phys_dim = in_dim - spectrum_dim
 
     temp_context_out_dim = int(moe_cfg.get("temp_context_out_dim", 0))
     model = HeterogeneousMoE(
-        pca_dim=k,
+        spectrum_dim=spectrum_dim,
         phys_dim=phys_dim,
         expert_out_dim=int(moe_cfg.get("expert_out_dim", 64)),
         hidden_dim=int(moe_cfg.get("hidden_dim", 128)),
@@ -110,14 +107,13 @@ def _load_pretrained_moe(
                   if k in current_sd and current_sd[k].shape == v.shape}
     skipped = [k for k in state if k not in compatible]
     if skipped:
-        print(f"[checkpoint] 跳过形状不匹配/多余参数 ({len(skipped)} 项)，如: {skipped[:3]}")
+        print(f"[checkpoint] skipped {len(skipped)} incompatible parameters, e.g. {skipped[:3]}")
     load_result = model.load_state_dict(compatible, strict=False)
     if load_result.missing_keys:
-        print(f"[checkpoint] 随机初始化参数: {len(load_result.missing_keys)} 项")
+        print(f"[checkpoint] initialized missing parameters: {len(load_result.missing_keys)}")
 
     extra = {
-        "reducer": reducer,
-        "z_mean": norm["z_mean"], "z_std": norm["z_std"],
+        "spectrum_mean": norm["spectrum_mean"], "spectrum_std": norm["spectrum_std"],
         "y_mean": norm["y_mean"], "y_std": norm["y_std"],
         "phys_mean": norm["phys_mean"], "phys_std": norm["phys_std"],
         "trough_indices": trough_indices,
@@ -240,7 +236,7 @@ def main() -> None:
     epochs = args.epochs if args.epochs is not None else int(ft_cfg.get("epochs", 500))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pretrain_dir = Path(args.pretrain_dir)
-    print(f"[设备] {device} | Adapter bottleneck={bottleneck_dim}, scale={adapter_scale}")
+    print(f"[device] {device} | adapter bottleneck={bottleneck_dim}, scale={adapter_scale}")
 
 
     bundle = load_spectrum_bundle(config)
@@ -252,7 +248,7 @@ def main() -> None:
     )
     train_fraction = float(split_cfg.get("train_fraction", 1.0))
     train_idx = subsample_train_indices(train_idx, fraction=train_fraction, seed=split_seed + 20000)
-    print(f"[数据] 微调训练={len(train_idx)}, 验证={len(val_idx)}, 测试={len(test_idx)}")
+    print(f"[data] fine-tune={len(train_idx)}, validation={len(val_idx)}, test={len(test_idx)}")
 
 
     model, artifacts, trough_indices = _load_pretrained_moe(pretrain_dir, device)
@@ -263,10 +259,9 @@ def main() -> None:
         _out_dim = model.temp_context_out_dim
         _drop = float(moe_cfg.get("dropout", 0.1))
         model.temp_encoder = _STE(out_dim=_out_dim, dropout=_drop).to(device)
-        print(f"[温度编码器] 已重新初始化为增强版 SE-CNN（out_dim={_out_dim}）")
+        print(f"[temperature encoder] reinitialized SE-CNN (out_dim={_out_dim})")
 
-    reducer = artifacts["reducer"]
-    z_mean, z_std = artifacts["z_mean"], artifacts["z_std"]
+    spectrum_mean, spectrum_std = artifacts["spectrum_mean"], artifacts["spectrum_std"]
     y_mean, y_std = artifacts["y_mean"], artifacts["y_std"]
     phys_mean, phys_std = artifacts["phys_mean"], artifacts["phys_std"]
     temp_context_out_dim = artifacts.get("temp_context_out_dim", 0)
@@ -309,9 +304,9 @@ def main() -> None:
     phys_val = apply_feature_standardizer(physics[val_idx], phys_mean, phys_std)
     phys_test = apply_feature_standardizer(physics[test_idx], phys_mean, phys_std)
 
-    z_train = (reducer.transform(bundle.x_raw_dbm[train_idx]) - z_mean) / z_std
-    z_val = (reducer.transform(bundle.x_raw_dbm[val_idx]) - z_mean) / z_std
-    z_test = (reducer.transform(bundle.x_raw_dbm[test_idx]) - z_mean) / z_std
+    z_train = (bundle.x[train_idx] - spectrum_mean) / spectrum_std
+    z_val = (bundle.x[val_idx] - spectrum_mean) / spectrum_std
+    z_test = (bundle.x[test_idx] - spectrum_mean) / spectrum_std
 
     y_train_s = apply_feature_standardizer(bundle.y[train_idx], y_mean, y_std)
     y_val_s = apply_feature_standardizer(bundle.y[val_idx], y_mean, y_std)
@@ -320,7 +315,7 @@ def main() -> None:
 
     adapter_enabled = bool(adapter_cfg.get("enabled", True))
     if adapter_enabled:
-        print(f"\n[Adapter] 插入瓶颈适配层（r={bottleneck_dim}, scale={adapter_scale}）")
+        print(f"\n[Adapter] inserting bottleneck adapter (r={bottleneck_dim}, scale={adapter_scale})")
         apply_adapter_to_model(
             model,
             bottleneck_dim=bottleneck_dim,
@@ -342,15 +337,15 @@ def main() -> None:
 
     stats = count_parameters(model)
     print(
-        f"[参数] 总计={stats['total']:,}, "
-        f"可训练={stats['trainable']:,} ({100*stats['trainable']/stats['total']:.2f}%)"
+        f"[parameters] total={stats['total']:,}, "
+        f"trainable={stats['trainable']:,} ({100*stats['trainable']/stats['total']:.2f}%)"
     )
 
 
     use_raw = (temp_context_out_dim > 0) or ("mamba" in getattr(model, "active_expert_types", []))
-    train_ds = PCASpectralDataset(z_train, phys_train, y_train_s, raw_spectrum=bundle.x_raw_dbm[train_idx] if use_raw else None, forward_physics=forward_values[train_idx] if forward_values is not None else None)
-    val_ds = PCASpectralDataset(z_val, phys_val, y_val_s, raw_spectrum=bundle.x_raw_dbm[val_idx] if use_raw else None, forward_physics=forward_values[val_idx] if forward_values is not None else None)
-    test_ds = PCASpectralDataset(z_test, phys_test, y_test_s, raw_spectrum=bundle.x_raw_dbm[test_idx] if use_raw else None, forward_physics=forward_values[test_idx] if forward_values is not None else None)
+    train_ds = SpectralDataset(z_train, phys_train, y_train_s, raw_spectrum=bundle.x[train_idx] if use_raw else None, forward_physics=forward_values[train_idx] if forward_values is not None else None)
+    val_ds = SpectralDataset(z_val, phys_val, y_val_s, raw_spectrum=bundle.x[val_idx] if use_raw else None, forward_physics=forward_values[val_idx] if forward_values is not None else None)
+    test_ds = SpectralDataset(z_test, phys_test, y_test_s, raw_spectrum=bundle.x[test_idx] if use_raw else None, forward_physics=forward_values[test_idx] if forward_values is not None else None)
     bs = int(ft_cfg.get("batch_size", 16))
     train_loader = DataLoader(train_ds, batch_size=bs, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=bs, shuffle=False)
@@ -367,7 +362,7 @@ def main() -> None:
     if use_uw_loss:
         uw_log_sigma_T = torch.nn.Parameter(torch.zeros(1, device=device))
         uw_log_sigma_S = torch.nn.Parameter(torch.zeros(1, device=device))
-        print(f"[UW Loss] Kendall Uncertainty Weighting enabled (log_sigma_T,S 可学习)")
+        print("[UW Loss] Kendall uncertainty weighting enabled")
 
 
     use_adaptive_mtl = bool(ft_cfg.get("use_adaptive_mtl", False))
@@ -412,7 +407,7 @@ def main() -> None:
     ssl_noise_std = float(ft_cfg.get("ssl_noise_std", 0.05))
     ssl_warmup = int(ft_cfg.get("ssl_warmup_epochs", 0))
     if ssl_weight > 0:
-        print(f"[SSL] 自监督一致性正则 weight={ssl_weight}, noise_std={ssl_noise_std}, "
+        print(f"[SSL] consistency regularization: weight={ssl_weight}, noise_std={ssl_noise_std}, "
               f"warmup={ssl_warmup} epochs")
 
     forward_weight = float(forward_cfg.get("weight", 0.0))
@@ -530,7 +525,7 @@ def main() -> None:
         out_aug = model(z2, phy2, raw_spectrum=raw2)
         return torch.mean((pred_clean - out_aug["prediction"]) ** 2)
 
-    print(f"\n[Adapter 微调] epochs={epochs}, patience={patience}")
+    print(f"\n[Adapter fine-tuning] epochs={epochs}, patience={patience}")
     for epoch in range(1, epochs + 1):
         _apply_hsg_schedule(model, moe_cfg, epoch)
         if lr_warmup_epochs > 0 and epoch <= lr_warmup_epochs:
@@ -765,7 +760,7 @@ def main() -> None:
                 stale += 1
 
             if epoch >= early_stop_warmup and stale >= patience:
-                print(f"  早停于 epoch={epoch}（patience={patience}, warmup={early_stop_warmup}）")
+                print(f"  early stopping at epoch={epoch} (patience={patience}, warmup={early_stop_warmup})")
                 break
 
         if epoch % 30 == 0 or epoch == epochs:
@@ -784,7 +779,7 @@ def main() -> None:
     ckpt = torch.load(Path(output_dir) / "best_adapter.pt", map_location=device, weights_only=False)
 
     if eval_use_ema and "ema" in ckpt:
-        print("[评估] 使用 EMA 权重（v14）")
+        print("[evaluation] using EMA weights")
         model.load_state_dict(ckpt["ema"], strict=False)
     else:
         model.load_state_dict(ckpt["model"])
@@ -799,7 +794,7 @@ def main() -> None:
                 y_preds.append(out["prediction"].cpu().numpy())
                 y_trues.append(batch["y"].numpy())
         if not y_preds:
-            print(f"[评估 - {split_name}集] 跳过（无样本）")
+            print(f"[evaluation - {split_name}] skipped because the split is empty")
             n_targets = len(bundle.target_names)
             return {}, np.empty((0, n_targets)), np.empty((0, n_targets))
         pred = np.concatenate(y_preds) * y_std + y_mean
@@ -815,7 +810,7 @@ def main() -> None:
             pred_sal_quantized = np.array([SALINITY_LEVELS[np.argmin(np.abs(s - SALINITY_LEVELS))] for s in pred_sal])
             pred[:, sal_col_idx] = pred_sal_quantized
         m = regression_metrics(true, pred, bundle.target_names)
-        print(f"[评估 - {split_name}集] {m}")
+        print(f"[evaluation - {split_name}] {m}")
         return m, pred, true
 
     base_info = {
@@ -890,7 +885,7 @@ def main() -> None:
     pred_val_df["salinity_pred"] = y_pred_val[:, 1]
     pred_val_df.to_csv(Path(output_dir) / "predictions_val.csv", index=False, encoding="utf-8-sig")
 
-    print(f"[完成] Adapter 微调结果保存至：{output_dir}")
+    print(f"[complete] adapter fine-tuning results saved to {output_dir}")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ import numpy as np
 
 from spectral_moe.data.dataset import load_spectrum_bundle
 
-from spectral_moe.models.gan import ConditionalGenerator, ConditionalVectorGenerator
+from spectral_moe.models.gan import ConditionalGenerator
 
 from spectral_moe.utils.config import load_config
 
@@ -60,25 +60,10 @@ def main() -> None:
 
     latent_dim = int(gan_cfg.get("latent_dim", 64))
 
-    representation = str(checkpoint.get("representation", "raw")).lower()
-
-    if representation == "pca":
-
-        pca_components = torch.as_tensor(checkpoint["pca_components"], device=device, dtype=torch.float32)
-
-        pca_mean = torch.as_tensor(checkpoint["pca_mean"], device=device, dtype=torch.float32)
-
-        generator = ConditionalVectorGenerator(latent_dim, 2, int(pca_components.shape[0])).to(device)
-
-    elif representation == "raw":
-
-        pca_components = pca_mean = None
-
-        generator = ConditionalGenerator(latent_dim, 2, bundle.x_raw_dbm.shape[1]).to(device)
-
-    else:
-
-        raise ValueError(f"unsupported GAN checkpoint representation: {representation}")
+    representation = str(checkpoint.get("representation", "")).lower()
+    if representation != "resampled_spectrum":
+        raise ValueError("checkpoint was not trained on the configured resampled spectrum")
+    generator = ConditionalGenerator(latent_dim, 2, bundle.x.shape[1]).to(device)
 
     generator.load_state_dict(checkpoint["generator"], strict=True)
 
@@ -142,13 +127,7 @@ def main() -> None:
 
             generated_representation = generated_normalized * spectrum_std + spectrum_mean
 
-            if representation == "pca":
-
-                raw = generated_representation @ pca_components + pca_mean
-
-            else:
-
-                raw = generated_representation.squeeze(1)
+            raw = generated_representation.squeeze(1)
 
             x_parts.append(raw.cpu().numpy().astype(np.float32))
 
@@ -156,11 +135,11 @@ def main() -> None:
 
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    np.savez_compressed(out, x_raw=np.concatenate(x_parts), y=y,
+    np.savez_compressed(out, x_spectrum=np.concatenate(x_parts), y=y,
 
                         gan_variant=checkpoint.get("gan_variant", "unknown"), seed=seed)
 
-    print(f"saved {n} generated raw-dBm spectra to {out}")
+    print(f"saved {n} generated resampled spectra to {out}")
 
 
 if __name__ == "__main__":

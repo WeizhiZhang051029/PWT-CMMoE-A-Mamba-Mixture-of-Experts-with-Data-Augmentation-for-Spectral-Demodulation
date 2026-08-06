@@ -34,6 +34,25 @@ def quantile_l1_distance(reference: np.ndarray, generated: np.ndarray, quantiles
     return float(np.mean(np.abs(np.quantile(reference, grid, axis=0) - np.quantile(generated, grid, axis=0))))
 
 
+def _nearest_distances(query: np.ndarray, reference: np.ndarray, *, exclude_self: bool = False) -> np.ndarray:
+    distances = np.empty(len(query), dtype=np.float64)
+    reference_norm = np.sum(reference * reference, axis=1)
+    for start in range(0, len(query), 256):
+        stop = min(start + 256, len(query))
+        chunk = query[start:stop]
+        distance_sq = (
+            np.sum(chunk * chunk, axis=1, keepdims=True)
+            + reference_norm[None, :]
+            - 2.0 * chunk @ reference.T
+        )
+        np.maximum(distance_sq, 0.0, out=distance_sq)
+        if exclude_self:
+            rows = np.arange(stop - start)
+            distance_sq[rows, np.arange(start, stop)] = np.inf
+        distances[start:stop] = np.sqrt(distance_sq.min(axis=1))
+    return distances
+
+
 def nearest_reference_coverage(reference: np.ndarray, generated: np.ndarray, percentile: float = 95.0) -> float:
 
     reference = np.asarray(reference, dtype=np.float64)
@@ -44,16 +63,14 @@ def nearest_reference_coverage(reference: np.ndarray, generated: np.ndarray, per
     scale[scale < 1e-8] = 1.0
     ref = reference / scale
     gen = generated / scale
-    ref_dist = ((ref[:, None, :] - ref[None, :, :]) ** 2).sum(axis=2)
-    np.fill_diagonal(ref_dist, np.inf)
-    radius = np.percentile(np.sqrt(ref_dist.min(axis=1)), percentile)
-    gen_distance = np.sqrt(((gen[:, None, :] - ref[None, :, :]) ** 2).sum(axis=2).min(axis=1))
+    radius = np.percentile(_nearest_distances(ref, ref, exclude_self=True), percentile)
+    gen_distance = _nearest_distances(gen, ref)
     return float(np.mean(gen_distance <= radius))
 
 
 def synthetic_acceptance_mask(
-    reference_pca: np.ndarray,
-    synthetic_pca: np.ndarray,
+    reference_features: np.ndarray,
+    synthetic_features: np.ndarray,
     observed_synthetic_wavelengths: np.ndarray,
     expected_synthetic_wavelengths: np.ndarray,
     *,
@@ -64,22 +81,22 @@ def synthetic_acceptance_mask(
 
     if max_conditional_trough_mae_nm <= 0:
         raise ValueError("max_conditional_trough_mae_nm must be positive")
-    reference = np.asarray(reference_pca, dtype=np.float64)
-    synthetic = np.asarray(synthetic_pca, dtype=np.float64)
+    reference = np.asarray(reference_features, dtype=np.float64)
+    synthetic = np.asarray(synthetic_features, dtype=np.float64)
     observed = np.asarray(observed_synthetic_wavelengths, dtype=np.float64)
     expected = np.asarray(expected_synthetic_wavelengths, dtype=np.float64)
     if reference.ndim != 2 or synthetic.ndim != 2 or reference.shape[1] != synthetic.shape[1]:
-        raise ValueError("PCA arrays must be 2-D with matching feature dimensions")
+        raise ValueError("feature arrays must be 2-D with matching feature dimensions")
     if observed.shape != expected.shape or observed.shape[0] != synthetic.shape[0]:
-        raise ValueError("trough arrays must match and align with synthetic_pca")
+        raise ValueError("trough arrays must match and align with synthetic_features")
     scale = reference.std(axis=0, keepdims=True)
     scale[scale < 1e-8] = 1.0
     ref = reference / scale
     syn = synthetic / scale
-    ref_dist = ((ref[:, None, :] - ref[None, :, :]) ** 2).sum(axis=2)
-    np.fill_diagonal(ref_dist, np.inf)
-    radius = float(np.percentile(np.sqrt(ref_dist.min(axis=1)), manifold_percentile))
-    nearest = np.sqrt(((syn[:, None, :] - ref[None, :, :]) ** 2).sum(axis=2).min(axis=1))
+    radius = float(np.percentile(
+        _nearest_distances(ref, ref, exclude_self=True), manifold_percentile
+    ))
+    nearest = _nearest_distances(syn, ref)
     trough_mae = np.mean(np.abs(observed - expected), axis=1)
     accepted = (trough_mae <= max_conditional_trough_mae_nm) & (nearest <= radius)
 
@@ -100,8 +117,8 @@ def synthetic_acceptance_mask(
 
 
 def synthetic_quality_report(
-    real_pca: np.ndarray,
-    synthetic_pca: np.ndarray,
+    real_features: np.ndarray,
+    synthetic_features: np.ndarray,
     real_trough_features: np.ndarray,
     synthetic_trough_features: np.ndarray,
     observed_synthetic_wavelengths: np.ndarray,
@@ -113,15 +130,15 @@ def synthetic_quality_report(
     if observed.shape != expected.shape:
         raise ValueError("expected and observed synthetic trough arrays must match")
     return {
-        "pca_frechet_distance": frechet_distance(real_pca, synthetic_pca),
-        "pca_real_manifold_coverage": nearest_reference_coverage(real_pca, synthetic_pca),
+        "spectral_frechet_distance": frechet_distance(real_features, synthetic_features),
+        "spectral_real_manifold_coverage": nearest_reference_coverage(real_features, synthetic_features),
         "trough_distribution_quantile_l1": quantile_l1_distance(real_trough_features, synthetic_trough_features),
         "conditional_trough_mae_nm": float(np.mean(np.abs(observed - expected))),
     }
 
 
 def select_physics_quality_diverse_indices(
-    candidate_indices: np.ndarray, synthetic_pca: np.ndarray,
+    candidate_indices: np.ndarray, synthetic_features: np.ndarray,
     synthetic_labels: np.ndarray, reference_labels: np.ndarray,
     trough_mae_nm: np.ndarray, manifold_distance: np.ndarray, *,
     target_count: int, max_conditional_trough_mae_nm: float,
@@ -130,7 +147,7 @@ def select_physics_quality_diverse_indices(
 ) -> tuple[np.ndarray, dict]:
 
     candidate_indices = np.asarray(candidate_indices, dtype=np.int64)
-    x = np.asarray(synthetic_pca, dtype=np.float64)
+    x = np.asarray(synthetic_features, dtype=np.float64)
     y = np.asarray(synthetic_labels, dtype=np.float64)
     ref_y = np.asarray(reference_labels, dtype=np.float64)
     trough = np.asarray(trough_mae_nm, dtype=np.float64)

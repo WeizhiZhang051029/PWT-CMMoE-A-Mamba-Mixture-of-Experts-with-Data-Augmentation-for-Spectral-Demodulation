@@ -9,6 +9,7 @@ data:
   target_names:
   - temperature_c
   - salinity_ppt
+  resample_method: linear
   downsample_to: 2048
   split:
     method: random
@@ -21,8 +22,6 @@ features:
   tracked_centers_nm:
   - 1599.0
   tracked_half_window_nm: 35.0
-pca:
-  variance_threshold: 0.99
 heterogeneous_moe:
   expert_types:
   - mlp
@@ -146,9 +145,6 @@ adapter_finetune:
 gan:
   enabled: true
   variant: wgan_gp
-  representation: pca
-  pca:
-    variance_threshold: 0.99
   output_dir: outputs/gan
   epochs: 300
   batch_size: 16
