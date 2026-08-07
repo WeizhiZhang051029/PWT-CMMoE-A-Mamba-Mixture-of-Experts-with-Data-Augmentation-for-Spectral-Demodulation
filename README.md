@@ -4,12 +4,12 @@
 
 The official implementation of [**PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity**](#citation).
 
-We propose PWT-CMMoE, a physics-guided Mamba mixture-of-experts framework for joint temperature and salinity demodulation from full transmission spectra under limited calibration data. PWT generates candidate spectra under anti-resonance constraints and employs a Physics-Consistent Sample Teacher (PCST) to screen and confidence-weight reliable synthetic samples. CMMoE employs Top-2 routing to select complementary heterogeneous experts, including a bidirectional Mamba expert. Conflict-aware task balancing (CATB), together with PCGrad, mitigates task imbalance and gradient conflicts between temperature and salinity demodulation.
+We propose PWT-CMMoE, a Mamba mixture-of-experts with physics-guided data augmentation framework for joint temperature and salinity demodulation from full transmission spectra under data scarcity. PWT first generates candidate spectra under anti-resonance constraints and employs a Physics-Consistent Sample Teacher (PCST) to screen and confidence-weight reliable synthetic samples. CMMoE employs a Hard Sparse Gate (HSG) with Top-2 routing to select complementary heterogeneous experts, including a bidirectional Mamba expert. This sparse collaboration enhances adaptive modeling of diverse spectral responses across temperature–salinity conditions. Conflict-aware task balancing (CATB), together with PCGrad, further mitigates task imbalance and gradient conflicts between temperature and salinity demodulation.
 
 ## 🔥 Highlights
 
 * **Physics-guided data augmentation:** incorporates anti-resonance constraints into WGAN-GP to enhance the physical consistency of generated transmission spectra.
-* **Teacher-guided sample selection:** employs PCST to screen generated spectra and assign confidence weights to physically reliable samples.
+* **Physics-Consistent Sample Teacher:** employs PCST to screen generated spectra and assign confidence weights to physically reliable samples.
 * **Heterogeneous sparse expert routing:** adopts Top-2 routing to activate complementary experts for input-adaptive spectral representation learning.
 * **Bidirectional Mamba modeling:** captures long-range dependencies and cross-band correlations within full transmission spectra.
 * **Conflict-aware task balancing:** alleviates task imbalance and gradient conflicts in joint temperature and salinity demodulation.
