@@ -4,7 +4,7 @@
 
 The official implementation of [**PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity**](#citation).
 
-We propose PWT-CMMoE, a physics-guided Mamba mixture-of-experts framework for joint temperature and salinity demodulation from full transmission spectra under limited calibration data. PWT generates candidate spectra under anti-resonance constraints and employs a Physics-Consistent Sample Teacher (PCST) to screen and confidence-weight reliable synthetic samples. CMMoE employs input-dependent Top-2 routing to select complementary heterogeneous experts, including a bidirectional Mamba expert. Conflict-aware task balancing (CATB), together with PCGrad, mitigates task imbalance and gradient conflicts between temperature and salinity demodulation.
+We propose PWT-CMMoE, a physics-guided Mamba mixture-of-experts framework for joint temperature and salinity demodulation from full transmission spectra under limited calibration data. PWT generates candidate spectra under anti-resonance constraints and employs a Physics-Consistent Sample Teacher (PCST) to screen and confidence-weight reliable synthetic samples. CMMoE employs Top-2 routing to select complementary heterogeneous experts, including a bidirectional Mamba expert. Conflict-aware task balancing (CATB), together with PCGrad, mitigates task imbalance and gradient conflicts between temperature and salinity demodulation.
 
 ## 🔥 Highlights
 
@@ -72,7 +72,7 @@ configs/config.yaml
 The configuration file controls:
 
 * dataset paths and data partitioning
-* spectral preprocessing and normalization
+* wavelength-grid alignment, linear interpolation, and spectral normalization
 * physics-guided WGAN-GP training
 * candidate-spectrum generation
 * PCST-based sample screening and confidence weighting
@@ -82,6 +82,7 @@ The configuration file controls:
 * checkpoint, prediction, and output paths
 
 Please update the dataset paths and relevant hyperparameters before running the experiments.
+
 
 ## 🚀 Running
 
@@ -168,7 +169,7 @@ PWT-CMMoE/
 
 The main components are organized as follows:
 
-* `spectral_moe/data/`: data loading, spectral preprocessing, PCA, and physics-feature extraction
+* `spectral_moe/data/`: data loading, wavelength-grid alignment, linear interpolation, normalization, and physics-feature extraction
 * `spectral_moe/models/`: physics-guided WGAN-GP, heterogeneous experts, sparse routing, Mamba modules, and adapters
 * `spectral_moe/train/`: spectrum generation, PCST screening, CMMoE pretraining, and CATB-guided optimization
 * `spectral_moe/evaluate/`: regression metrics, predictions, and model-analysis utilities
