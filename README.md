@@ -4,6 +4,8 @@
 
 The official implementation of [**PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity**](#citation).
 
+![PWT-CMMoE framework](images/framework_overview.jpg)
+
 We propose PWT-CMMoE, a Mamba mixture-of-experts with physics-guided data augmentation framework for joint temperature and salinity demodulation from full transmission spectra under data scarcity. PWT first generates candidate spectra under anti-resonance constraints and employs a Physics-Consistent Sample Teacher (PCST) to screen and confidence-weight reliable synthetic samples. CMMoE employs a Hard Sparse Gate (HSG) with Top-2 routing to select complementary heterogeneous experts, including a bidirectional Mamba expert. This sparse collaboration enhances adaptive modeling of diverse spectral responses across temperature–salinity conditions. Conflict-aware task balancing (CATB), together with PCGrad, further mitigates task imbalance and gradient conflicts between temperature and salinity demodulation.
 
 ## 🔥 Highlights
