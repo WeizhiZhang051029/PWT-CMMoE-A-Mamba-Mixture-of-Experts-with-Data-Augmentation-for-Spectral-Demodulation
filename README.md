@@ -5,11 +5,12 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10-blue">
-  <img src="https://img.shields.io/badge/PyTorch-Deep%20Learning-orange">
-  <img src="https://img.shields.io/badge/Mamba-Sequence%20Modeling-purple">
-  <img src="https://img.shields.io/badge/MoE-Sparse%20Routing-green">
+  <img src="https://img.shields.io/badge/PWT-Data%20Augmentation-green">
+  <img src="https://img.shields.io/badge/CMMoE-Joint%20Spectral%20Demodulation-purple">
+  <img src="https://img.shields.io/badge/CATB-Conflict--Aware%20Task%20Balancing-orange">
   <img src="https://img.shields.io/badge/Application-Temperature%20%26%20Salinity-blue">
+  <img src="https://img.shields.io/badge/Python-3.10-3776AB">
+  <img src="https://img.shields.io/badge/PyTorch-Deep%20Learning-EE4C2C">
 </p>
 
 <p align="center">
@@ -24,7 +25,13 @@
 
 The official implementation of **PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity**.
 
-![PWT-CMMoE framework](images/framework_overview.jpg)
+<p align="center">
+  <img src="images/framework_overview.jpg" width="100%">
+</p>
+
+<p align="center">
+  <em>Overall framework of the proposed PWT-CMMoE method for data augmentation and joint temperature–salinity demodulation.</em>
+</p>
 
 We propose PWT-CMMoE, a Mamba mixture-of-experts with physics-guided data augmentation framework for joint temperature and salinity demodulation from full transmission spectra under data scarcity. PWT first generates candidate spectra under anti-resonance constraints and employs a Physics-Consistent Sample Teacher (PCST) to screen and confidence-weight reliable synthetic samples. CMMoE employs a Hard Sparse Gate (HSG) with Top-2 routing to select complementary heterogeneous experts, including a bidirectional Mamba expert. This sparse collaboration enhances adaptive modeling of diverse spectral responses across temperature–salinity conditions. Conflict-aware task balancing (CATB), together with PCGrad, further mitigates task imbalance and gradient conflicts between temperature and salinity demodulation.
 
