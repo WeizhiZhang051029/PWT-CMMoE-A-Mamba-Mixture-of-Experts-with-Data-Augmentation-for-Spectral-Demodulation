@@ -7,7 +7,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/PWT-Data%20Augmentation-green">
   <img src="https://img.shields.io/badge/CMMoE-Joint%20Spectral%20Demodulation-purple">
-  <img src="https://img.shields.io/badge/CATB-Conflict--Aware%20Task%20Balancing-orange">
   <img src="https://img.shields.io/badge/Application-Temperature%20%26%20Salinity-blue">
   <img src="https://img.shields.io/badge/Python-3.10-3776AB">
   <img src="https://img.shields.io/badge/PyTorch-Deep%20Learning-EE4C2C">
@@ -23,6 +22,8 @@
   </a>
 </p>
 
+## 📌 Overview
+
 The official implementation of **PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity**.
 
 <p align="center">
@@ -33,7 +34,7 @@ The official implementation of **PWT-CMMoE: A Mamba Mixture-of-Experts with Data
   <em>Overall framework of the proposed PWT-CMMoE method for data augmentation and joint temperature–salinity demodulation.</em>
 </p>
 
-We propose PWT-CMMoE, a Mamba mixture-of-experts with physics-guided data augmentation framework for joint temperature and salinity demodulation from full transmission spectra under data scarcity. PWT first generates candidate spectra under anti-resonance constraints and employs a Physics-Consistent Sample Teacher (PCST) to screen and confidence-weight reliable synthetic samples. CMMoE employs a Hard Sparse Gate (HSG) with Top-2 routing to select complementary heterogeneous experts, including a bidirectional Mamba expert. This sparse collaboration enhances adaptive modeling of diverse spectral responses across temperature–salinity conditions. Conflict-aware task balancing (CATB), together with PCGrad, further mitigates task imbalance and gradient conflicts between temperature and salinity demodulation.
+We propose PWT-CMMoE for joint temperature and salinity demodulation from full transmission spectra under data scarcity. The framework combines physics-guided data augmentation with a sparse Mamba mixture-of-experts (MoE) for adaptive spectral modeling, while CATB mitigates task imbalance and gradient conflicts during joint optimization.
 
 ## 🔬 Experimental Platform
 
