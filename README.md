@@ -34,7 +34,7 @@ The official implementation of **PWT-CMMoE: A Mamba Mixture-of-Experts with Data
   <em>Overall framework of the proposed PWT-CMMoE method for data augmentation and joint temperature–salinity demodulation.</em>
 </p>
 
-We propose PWT-CMMoE for joint temperature and salinity demodulation from full transmission spectra under data scarcity. The framework combines physics-guided data augmentation with a sparse Mamba mixture-of-experts (MoE) for adaptive spectral modeling, while CATB mitigates task imbalance and gradient conflicts during joint optimization.
+We propose PWT-CMMoE for joint temperature and salinity demodulation from full transmission spectra under data scarcity. The framework combines physics-guided data augmentation with a sparse Mamba mixture-of-experts (MoE) for adaptive spectral modeling, while CATB mitigates task imbalance and gradient conflicts during joint optimization. Experimental results on Dataset1 achieve RMSEs of 1.461 °C and 1.743‰ for temperature and salinity, with corresponding R² values of 0.9737 and 0.9927. Cross-dataset experiments on Dataset2 further demonstrate the adaptability of PWT-CMMoE to spectral distribution shifts across independently fabricated sensors.
 
 ## 🔬 Experimental Platform
 
