@@ -8,6 +8,18 @@ The official implementation of [**PWT-CMMoE: A Mamba Mixture-of-Experts with Dat
 
 We propose PWT-CMMoE, a Mamba mixture-of-experts with physics-guided data augmentation framework for joint temperature and salinity demodulation from full transmission spectra under data scarcity. PWT first generates candidate spectra under anti-resonance constraints and employs a Physics-Consistent Sample Teacher (PCST) to screen and confidence-weight reliable synthetic samples. CMMoE employs a Hard Sparse Gate (HSG) with Top-2 routing to select complementary heterogeneous experts, including a bidirectional Mamba expert. This sparse collaboration enhances adaptive modeling of diverse spectral responses across temperature–salinity conditions. Conflict-aware task balancing (CATB), together with PCGrad, further mitigates task imbalance and gradient conflicts between temperature and salinity demodulation.
 
+## 🔬 Experimental Platform
+
+<p align="center">
+  <img src="images/platform.jpg" width="100%">
+</p>
+
+<p align="center">
+  <em>Experimental platform for transmission-spectrum acquisition and online temperature–salinity demodulation.</em>
+</p>
+
+The experimental platform consists of a supercontinuum light source (SLS), the proposed fiber-optic sensor, a constant-temperature oil bath, a precision thermometer, an optical spectrum analyzer (OSA), and a data-processing system. Standard seawater samples with different salinity levels are injected into the sensor using a syringe. The oil bath provides controlled temperature conditions, while the OSA records the corresponding transmission spectra for subsequent joint temperature and salinity demodulation based on PWT-CMMoE.
+
 ## 🔥 Highlights
 
 * **Physics-guided data augmentation:** incorporates anti-resonance constraints into WGAN-GP to enhance the physical consistency of generated transmission spectra.
