@@ -1,8 +1,28 @@
-# PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity
+# 🌊 PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity
 
-### [Project Page](https://github.com/WeizhiZhang051029/PWT-CMMoE-A-Mamba-Mixture-of-Experts-with-Data-Augmentation-for-Spectral-Demodulation) | [Paper](#citation)
+<p align="center">
+  <b>Physics-Guided Data Augmentation · Mamba-MoE · Full-Spectrum Demodulation</b>
+</p>
 
-The official implementation of [**PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity**](#citation).
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10-blue">
+  <img src="https://img.shields.io/badge/PyTorch-Deep%20Learning-orange">
+  <img src="https://img.shields.io/badge/Mamba-Sequence%20Modeling-purple">
+  <img src="https://img.shields.io/badge/MoE-Sparse%20Routing-green">
+  <img src="https://img.shields.io/badge/Application-Temperature%20%26%20Salinity-blue">
+</p>
+
+<p align="center">
+  <a href="https://github.com/WeizhiZhang051029/PWT-CMMoE-A-Mamba-Mixture-of-Experts-with-Data-Augmentation-for-Spectral-Demodulation">
+    <b>Project Page</b>
+  </a>
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  <a href="#citation">
+    <b>Paper</b>
+  </a>
+</p>
+
+The official implementation of **PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity**.
 
 ![PWT-CMMoE framework](images/framework_overview.jpg)
 
