@@ -136,8 +136,8 @@ def _apply_hsg_schedule(model, moe_cfg, epoch):
 class AdaptiveMTLBalancer:
 
 
-    def __init__(self, alpha=1.0, beta=0.0, gamma=0.5, ema_span=10,
-                 min_weight=0.55, prior_lambda_T=0.714, prior_strength=0.7,
+    def __init__(self, alpha=1.0, beta=1.0, gamma=0.5, ema_span=10,
+                 min_weight=0.55, prior_lambda_T=0.638,
                  min_weight_S=None):
         self.alpha = alpha
 
@@ -149,7 +149,6 @@ class AdaptiveMTLBalancer:
         self.min_weight_T = float(min_weight)
         self.min_weight_S = float(min_weight_S) if min_weight_S is not None else 0.15
         self.prior_lambda_T = float(prior_lambda_T)
-        self.prior_strength = float(prior_strength)
         self.L_ema = [None, None]
         self.L_prev_norm = [None, None]
 
@@ -179,12 +178,11 @@ class AdaptiveMTLBalancer:
         lambda_T_adapt = S_T / denom
 
 
-        lambda_T_raw = (self.prior_strength * self.prior_lambda_T
-                        + (1.0 - self.prior_strength) * lambda_T_adapt)
-
-
         C = float(max(0.0, C_epoch))
-        lambda_T_ = (1 - self.gamma * C) * lambda_T_raw + self.gamma * C * self.prior_lambda_T
+        # Eq. (12): increasingly conflicting gradients drive the two task
+        # weights toward the balanced allocation (0.5, 0.5), not the initial
+        # fine-tuning allocation.
+        lambda_T_ = (1 - self.gamma * C) * lambda_T_adapt + self.gamma * C * 0.5
 
 
         upper = 1.0 - self.min_weight_S
@@ -369,7 +367,7 @@ def main() -> None:
     use_pcgrad       = bool(ft_cfg.get("use_pcgrad", True))
     mtl_alpha        = float(ft_cfg.get("mtl_alpha", 1.0))
 
-    mtl_beta         = float(ft_cfg.get("mtl_beta", 0.0))
+    mtl_beta         = float(ft_cfg.get("mtl_beta", 1.0))
     mtl_gamma        = float(ft_cfg.get("mtl_gamma", 0.5))
     mtl_ema_span     = int(ft_cfg.get("mtl_ema_span", 10))
 
@@ -380,17 +378,14 @@ def main() -> None:
 
     default_prior_lambda_T = temp_w / max(temp_w + sal_w, 1e-8)
     mtl_prior_lambda_T = float(ft_cfg.get("mtl_prior_lambda_T", default_prior_lambda_T))
-    mtl_prior_strength = float(ft_cfg.get("mtl_prior_strength", 0.7))
     if use_adaptive_mtl:
         mtl_balancer = AdaptiveMTLBalancer(
             alpha=mtl_alpha, beta=mtl_beta, gamma=mtl_gamma,
             ema_span=mtl_ema_span, min_weight=mtl_min_weight,
             prior_lambda_T=mtl_prior_lambda_T,
-            prior_strength=mtl_prior_strength,
             min_weight_S=mtl_min_weight_S,
         )
-        print(f"[Adaptive MTL] prior_lambda_T={mtl_prior_lambda_T:.3f} "
-              f"prior_strength={mtl_prior_strength}, "
+        print(f"[Adaptive MTL] initial_lambda_T={mtl_prior_lambda_T:.3f} "
               f"clip=[{mtl_min_weight:.2f}, {1-mtl_min_weight_S:.2f}], "
               f"alpha={mtl_alpha}, beta={mtl_beta}, gamma={mtl_gamma}, "
               f"PCGrad={'on' if use_pcgrad else 'off'}")

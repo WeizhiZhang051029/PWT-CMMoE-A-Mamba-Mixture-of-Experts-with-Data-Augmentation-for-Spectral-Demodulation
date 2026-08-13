@@ -95,7 +95,7 @@ pretrain:
   weight_decay: 0.0002
   temperature_weight: 3.5
   salinity_weight: 1.0
-  load_balance_weight: 0.01
+  load_balance_weight: 0.005
   synthetic_weight: 0.05
   decouple_temperature_pretrain: true
   synthetic_only: true
@@ -135,13 +135,12 @@ adapter_finetune:
   use_adaptive_mtl: true
   use_pcgrad: true
   mtl_alpha: 1.0
-  mtl_beta: 0.0
+  mtl_beta: 1.0
   mtl_gamma: 0.5
   mtl_ema_span: 10
   mtl_min_weight: 0.55
   mtl_min_weight_S: 0.15
-  mtl_prior_lambda_T: 0.714
-  mtl_prior_strength: 0.7
+  mtl_prior_lambda_T: 0.638
 gan:
   enabled: true
   variant: wgan_gp
