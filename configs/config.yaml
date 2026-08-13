@@ -64,7 +64,7 @@ pretrain:
     max_conditional_trough_mae_nm: 16.0
     manifold_percentile: 95.0
     target_accepted_samples: 2000
-    min_accepted_samples: 1200
+    min_accepted_samples: 2000
     hard_reject_trough_multiplier: 2.0
     min_accept_fraction: 0.05
     confidence_weighting: true
@@ -138,8 +138,6 @@ adapter_finetune:
   mtl_beta: 1.0
   mtl_gamma: 0.5
   mtl_ema_span: 10
-  mtl_min_weight: 0.55
-  mtl_min_weight_S: 0.15
   mtl_prior_lambda_T: 0.638
 gan:
   enabled: true

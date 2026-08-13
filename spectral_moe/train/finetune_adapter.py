@@ -137,8 +137,7 @@ class AdaptiveMTLBalancer:
 
 
     def __init__(self, alpha=1.0, beta=1.0, gamma=0.5, ema_span=10,
-                 min_weight=0.55, prior_lambda_T=0.638,
-                 min_weight_S=None):
+                 prior_lambda_T=0.638):
         self.alpha = alpha
 
         self.beta = beta
@@ -146,8 +145,6 @@ class AdaptiveMTLBalancer:
         self.ema_alpha = 2.0 / (ema_span + 1)
 
 
-        self.min_weight_T = float(min_weight)
-        self.min_weight_S = float(min_weight_S) if min_weight_S is not None else 0.15
         self.prior_lambda_T = float(prior_lambda_T)
         self.L_ema = [None, None]
         self.L_prev_norm = [None, None]
@@ -185,8 +182,6 @@ class AdaptiveMTLBalancer:
         lambda_T_ = (1 - self.gamma * C) * lambda_T_adapt + self.gamma * C * 0.5
 
 
-        upper = 1.0 - self.min_weight_S
-        lambda_T_ = max(self.min_weight_T, min(upper, lambda_T_))
         lambda_S_ = 1.0 - lambda_T_
 
         self.lambda_T = lambda_T_
@@ -372,21 +367,14 @@ def main() -> None:
     mtl_ema_span     = int(ft_cfg.get("mtl_ema_span", 10))
 
 
-    mtl_min_weight   = float(ft_cfg.get("mtl_min_weight", 0.55))
-    mtl_min_weight_S = float(ft_cfg.get("mtl_min_weight_S", 0.15))
-
-
     default_prior_lambda_T = temp_w / max(temp_w + sal_w, 1e-8)
     mtl_prior_lambda_T = float(ft_cfg.get("mtl_prior_lambda_T", default_prior_lambda_T))
     if use_adaptive_mtl:
         mtl_balancer = AdaptiveMTLBalancer(
             alpha=mtl_alpha, beta=mtl_beta, gamma=mtl_gamma,
-            ema_span=mtl_ema_span, min_weight=mtl_min_weight,
-            prior_lambda_T=mtl_prior_lambda_T,
-            min_weight_S=mtl_min_weight_S,
+            ema_span=mtl_ema_span, prior_lambda_T=mtl_prior_lambda_T,
         )
         print(f"[Adaptive MTL] initial_lambda_T={mtl_prior_lambda_T:.3f} "
-              f"clip=[{mtl_min_weight:.2f}, {1-mtl_min_weight_S:.2f}], "
               f"alpha={mtl_alpha}, beta={mtl_beta}, gamma={mtl_gamma}, "
               f"PCGrad={'on' if use_pcgrad else 'off'}")
     else:
@@ -420,6 +408,13 @@ def main() -> None:
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     if not trainable_params:
         raise RuntimeError("No trainable parameters found for adapter fine-tuning.")
+    # CATB/PCGrad applies only to shared adaptation parameters. The two
+    # task-specific prediction heads retain their independent gradients.
+    trainable_names = [name for name, p in model.named_parameters() if p.requires_grad]
+    shared_param_mask = [
+        "temperature_head" not in name and "salinity_head" not in name
+        for name in trainable_names
+    ]
 
     base_lr = float(ft_cfg.get("learning_rate", 3e-4))
     encoder_lr_scale = float(ft_cfg.get("encoder_lr_scale", 1.0))
@@ -577,9 +572,9 @@ def main() -> None:
                           else torch.zeros_like(p) for p in trainable_params]
                     optimizer.zero_grad()
 
-                    gT_flat = torch.cat([g.reshape(-1) for g in gT])
-                    gS_flat = torch.cat([g.reshape(-1) for g in gS])
-                    gB_flat = torch.cat([g.reshape(-1) for g in gB])
+                    gT_flat = torch.cat([g.reshape(-1) for g, shared in zip(gT, shared_param_mask) if shared])
+                    gS_flat = torch.cat([g.reshape(-1) for g, shared in zip(gS, shared_param_mask) if shared])
+                    gB_flat = torch.cat([g.reshape(-1) for g, shared in zip(gB, shared_param_mask) if shared])
                     cos_TS = (torch.dot(gT_flat, gS_flat)
                               / (gT_flat.norm() * gS_flat.norm() + 1e-8))
                     C_batch = float(max(0.0, -cos_TS.item()))
@@ -596,12 +591,15 @@ def main() -> None:
                                   / (gT_orig.norm() ** 2 + 1e-8)) * gT_orig
                         gS_flat = gS_orig - proj_S
 
-                    gc = lT * gT_flat + lS * gS_flat + gB_flat
+                    gc_shared = lT * gT_flat + lS * gS_flat + gB_flat
                     _off = 0
-                    for _p in trainable_params:
-                        _sz = _p.numel()
-                        _p.grad = gc[_off:_off + _sz].reshape(_p.shape).clone()
-                        _off += _sz
+                    for _p, _gT, _gS, _gB, _is_shared in zip(trainable_params, gT, gS, gB, shared_param_mask):
+                        if _is_shared:
+                            _sz = _p.numel()
+                            _p.grad = gc_shared[_off:_off + _sz].reshape(_p.shape).clone()
+                            _off += _sz
+                        else:
+                            _p.grad = (lT * _gT + lS * _gS + _gB).clone()
                     torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
                     optimizer.step()
                     loss_log = (lT * float(loss_t.item()) + lS * float(loss_s.item())
@@ -862,7 +860,7 @@ def main() -> None:
         write_json(Path(output_dir) / "mtl_conflict_history.json",
                    {"config": {"alpha": mtl_alpha, "beta": mtl_beta,
                                "gamma": mtl_gamma, "pcgrad": use_pcgrad,
-                               "min_weight": mtl_min_weight},
+                               "initial_lambda_T": mtl_prior_lambda_T},
                     "history": mtl_balancer.history})
         print(f"[adaptive-mtl] conflict history saved ({len(mtl_balancer.history)} epochs)")
 
