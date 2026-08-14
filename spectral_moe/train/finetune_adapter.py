@@ -408,11 +408,14 @@ def main() -> None:
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     if not trainable_params:
         raise RuntimeError("No trainable parameters found for adapter fine-tuning.")
-    # CATB/PCGrad applies only to shared adaptation parameters. The two
-    # task-specific prediction heads retain their independent gradients.
+    # CATB/PCGrad applies only to shared adaptation parameters.  The two
+    # prediction heads and the temperature-specific spectral encoder retain
+    # their task-local gradients (theta_T/theta_S in the manuscript).
     trainable_names = [name for name, p in model.named_parameters() if p.requires_grad]
     shared_param_mask = [
-        "temperature_head" not in name and "salinity_head" not in name
+        "temperature_head" not in name
+        and "salinity_head" not in name
+        and "temp_encoder" not in name
         for name in trainable_names
     ]
 

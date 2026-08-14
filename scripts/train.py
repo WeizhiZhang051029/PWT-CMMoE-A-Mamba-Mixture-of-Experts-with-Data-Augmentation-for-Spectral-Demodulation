@@ -5,8 +5,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from spectral_moe.utils.config import load_config
 
 
 def run(command: list[str]) -> None:
@@ -23,8 +26,12 @@ def main() -> None:
     parser.add_argument("--skip-pretrain", action="store_true")
     args = parser.parse_args()
 
-    config = str((ROOT / args.config).resolve())
-    gan_dir = ROOT / "outputs" / "gan"
+    config_path = Path(args.config)
+    config = str((ROOT / config_path).resolve() if not config_path.is_absolute() else config_path.resolve())
+    loaded_config = load_config(config)
+    gan_dir = Path(loaded_config.get("gan", {}).get("output_dir", "outputs/gan"))
+    if not gan_dir.is_absolute():
+        gan_dir = (ROOT / gan_dir).resolve()
     pretrain_dir = str((ROOT / args.pretrain_dir).resolve())
     adapter_dir = str((ROOT / args.adapter_dir).resolve())
 

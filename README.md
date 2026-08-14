@@ -145,6 +145,18 @@ The pipeline sequentially:
 5. optimizes CMMoE on measured spectra under CATB;
 6. evaluates joint temperature and salinity demodulation performance.
 
+### Ten-seed Repetition Reported in the Manuscript
+
+To reproduce the reported mean and standard deviation over independent random seeds,
+run the repetition driver (the default configuration defines seeds 1--10):
+
+```bash
+python scripts/repeat_experiments.py
+```
+
+It writes each isolated run under `outputs/repeated_runs/seed_XX/` and writes the
+aggregated test metrics to `outputs/repeated_runs/test_metrics_mean_std.json`.
+
 ### Stage-by-Stage Execution
 
 Each training stage can also be executed independently.

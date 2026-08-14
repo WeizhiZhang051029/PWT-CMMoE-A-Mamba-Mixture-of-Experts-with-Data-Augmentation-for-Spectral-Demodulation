@@ -1,4 +1,7 @@
 seed: 1
+experiment:
+  # The manuscript reports mean +/- standard deviation over ten independent seeds.
+  repeat_seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 data:
   npz_path: data/spectra.npz
   labels_path: data/labels.csv

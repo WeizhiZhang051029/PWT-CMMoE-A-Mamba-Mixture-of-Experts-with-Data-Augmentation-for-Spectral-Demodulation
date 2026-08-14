@@ -63,3 +63,20 @@ def test_pcst_selector_returns_coverage_aware_continuous_confidence_weights():
     assert result.audit["method"] == "cmi_pcqd"
     assert np.isclose(result.confidence.mean(), 1.0)
     assert np.all(result.confidence > 0)
+
+
+def test_catb_keeps_task_specific_heads_and_temperature_encoder_out_of_shared_projection():
+    trainable_names = [
+        "shared_proj.1.adapter_down.weight",
+        "router.gate.1.adapter_up.weight",
+        "temperature_head.residual_mlp.0.weight",
+        "salinity_head.residual_mlp.0.weight",
+        "temp_encoder.proj.weight",
+    ]
+    shared = [
+        "temperature_head" not in name
+        and "salinity_head" not in name
+        and "temp_encoder" not in name
+        for name in trainable_names
+    ]
+    assert shared == [True, True, False, False, False]
