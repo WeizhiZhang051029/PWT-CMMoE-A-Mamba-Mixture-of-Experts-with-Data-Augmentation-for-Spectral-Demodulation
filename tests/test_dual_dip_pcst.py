@@ -10,6 +10,7 @@ from spectral_moe.evaluate.synthetic_quality import (
     real_manifold_distances,
     synthetic_acceptance_mask,
 )
+from spectral_moe.train.finetune_adapter import AdaptiveMTLBalancer
 
 
 def test_default_configuration_uses_the_same_two_dips_everywhere():
@@ -86,3 +87,15 @@ def test_default_configuration_has_no_temperature_encoder():
     assert "temp_context_out_dim" not in config["heterogeneous_moe"]
     assert all("temp_encoder" not in item for item in config["adapter"]["exclude_modules"])
     assert all("temp_encoder" not in item for item in config["adapter_finetune"]["trainable_name_filters"])
+
+
+def test_catb_uses_equal_weight_calibration_before_adaptive_updates():
+    balancer = AdaptiveMTLBalancer(alpha=1.0, beta=1.0, gamma=0.5, ema_span=10)
+    assert (balancer.lambda_T, balancer.lambda_S) == (0.5, 0.5)
+
+    balancer.initialize_from_calibration(L_T=3.0, L_S=1.0, epoch=1)
+    assert np.isclose(balancer.lambda_T, 0.75)
+    assert np.isclose(balancer.lambda_S, 0.25)
+    assert balancer.L_ema == [3.0, 1.0]
+    assert balancer.L_prev_norm == [1.0, 1.0]
+    assert balancer.history[-1]["phase"] == "equal_weight_calibration"

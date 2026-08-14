@@ -97,7 +97,6 @@ def _load_pretrained_moe(
         physics_heads_cfg=moe_cfg.get("physics_heads", None),
         expert_types=moe_cfg.get("expert_types", None),
         use_moe=bool(moe_cfg.get("use_moe", True)),
-        hsg_cfg=moe_cfg.get("hsg", None),
         mamba_cfg=moe_cfg.get("mamba", None),
     ).to(device)
     current_sd = model.state_dict()
@@ -119,37 +118,44 @@ def _load_pretrained_moe(
     return model, extra, trough_indices
 
 
-def _apply_hsg_schedule(model, moe_cfg, epoch):
-
-    hsg_cfg = moe_cfg.get("hsg", {}) or {}
-    configured_mode = str(hsg_cfg.get("mode", "sparse")).lower()
-    warmup_epochs = int(hsg_cfg.get("warmup_epochs", 0))
-    if not hasattr(model, "router") or not hasattr(model.router, "set_mode"):
-        return
-    active_mode = "dense" if configured_mode == "sparse" and epoch <= warmup_epochs else configured_mode
-    model.router.set_mode(active_mode)
-
-
 class AdaptiveMTLBalancer:
+    """CATB task priorities with the manuscript's equal-weight calibration."""
 
-
-    def __init__(self, alpha=1.0, beta=1.0, gamma=0.5, ema_span=10,
-                 prior_lambda_T=0.638):
+    def __init__(self, alpha=1.0, beta=1.0, gamma=0.5, ema_span=10):
         self.alpha = alpha
 
         self.beta = beta
         self.gamma = gamma
         self.ema_alpha = 2.0 / (ema_span + 1)
 
-
-        self.prior_lambda_T = float(prior_lambda_T)
         self.L_ema = [None, None]
         self.L_prev_norm = [None, None]
-
-
-        self.lambda_T = self.prior_lambda_T
-        self.lambda_S = 1.0 - self.prior_lambda_T
+        # Algorithm 2: epoch 1 is always an equal-weight calibration epoch.
+        self.lambda_T = 0.5
+        self.lambda_S = 0.5
+        self.calibration_losses = None
         self.history = []
+
+    def initialize_from_calibration(self, L_T, L_S, epoch=1):
+        """Initialize EMA baselines and priorities from calibration means."""
+        denom = max(L_T + L_S, 1e-8)
+        self.L_ema = [float(L_T), float(L_S)]
+        self.L_prev_norm = [1.0, 1.0]
+        self.lambda_T = float(L_T) / denom
+        self.lambda_S = float(L_S) / denom
+        self.calibration_losses = {"temperature": float(L_T), "salinity": float(L_S)}
+        self.history.append({
+            "epoch": epoch,
+            "phase": "equal_weight_calibration",
+            "lambda_T": self.lambda_T,
+            "lambda_S": self.lambda_S,
+            "C": None,
+            "L_T": float(L_T),
+            "L_S": float(L_S),
+            "L_T_norm": 1.0,
+            "L_S_norm": 1.0,
+            "lambda_T_adapt": self.lambda_T,
+        })
 
     def update(self, L_T, L_S, C_epoch, epoch=0):
         for i, L in enumerate([L_T, L_S]):
@@ -185,11 +191,11 @@ class AdaptiveMTLBalancer:
         self.lambda_S = lambda_S_
         self.history.append({
             "epoch": epoch,
+            "phase": "adaptive",
             "lambda_T": lambda_T_, "lambda_S": lambda_S_,
             "C": C, "L_T": L_T, "L_S": L_S,
             "L_T_norm": L_T_norm, "L_S_norm": L_S_norm,
             "lambda_T_adapt": lambda_T_adapt,
-            "lambda_T_prior": self.prior_lambda_T,
         })
         return lambda_T_, lambda_S_
 
@@ -355,14 +361,12 @@ def main() -> None:
     mtl_ema_span     = int(ft_cfg.get("mtl_ema_span", 10))
 
 
-    default_prior_lambda_T = temp_w / max(temp_w + sal_w, 1e-8)
-    mtl_prior_lambda_T = float(ft_cfg.get("mtl_prior_lambda_T", default_prior_lambda_T))
     if use_adaptive_mtl:
         mtl_balancer = AdaptiveMTLBalancer(
             alpha=mtl_alpha, beta=mtl_beta, gamma=mtl_gamma,
-            ema_span=mtl_ema_span, prior_lambda_T=mtl_prior_lambda_T,
+            ema_span=mtl_ema_span,
         )
-        print(f"[Adaptive MTL] initial_lambda_T={mtl_prior_lambda_T:.3f} "
+        print(f"[CATB] equal-weight calibration: lambda_T=0.500 lambda_S=0.500; "
               f"alpha={mtl_alpha}, beta={mtl_beta}, gamma={mtl_gamma}, "
               f"PCGrad={'on' if use_pcgrad else 'off'}")
     else:
@@ -498,7 +502,6 @@ def main() -> None:
 
     print(f"\n[Adapter fine-tuning] epochs={epochs}, patience={patience}")
     for epoch in range(1, epochs + 1):
-        _apply_hsg_schedule(model, moe_cfg, epoch)
         if lr_warmup_epochs > 0 and epoch <= lr_warmup_epochs:
             progress = float(epoch - 1) / float(max(1, lr_warmup_epochs - 1))
             factor = warmup_start_factor + (1.0 - warmup_start_factor) * progress
@@ -660,7 +663,14 @@ def main() -> None:
             _ep_C  = float(sum(_mtl_conflict_buf) / max(len(_mtl_conflict_buf), 1))
             _ep_LT = float(sum(_mtl_lT_buf) / max(len(_mtl_lT_buf), 1))
             _ep_LS = float(sum(_mtl_lS_buf) / max(len(_mtl_lS_buf), 1))
-            mtl_balancer.update(_ep_LT, _ep_LS, _ep_C, epoch=epoch)
+            if epoch == 1:
+                mtl_balancer.initialize_from_calibration(_ep_LT, _ep_LS, epoch=epoch)
+                print("[CATB] calibration complete: "
+                      f"mean_LT={_ep_LT:.6f} mean_LS={_ep_LS:.6f} "
+                      f"-> lambda_T={mtl_balancer.lambda_T:.3f} "
+                      f"lambda_S={mtl_balancer.lambda_S:.3f}")
+            else:
+                mtl_balancer.update(_ep_LT, _ep_LS, _ep_C, epoch=epoch)
 
 
         if lr_warmup_epochs <= 0 or epoch > lr_warmup_epochs:
@@ -841,7 +851,7 @@ def main() -> None:
         write_json(Path(output_dir) / "mtl_conflict_history.json",
                    {"config": {"alpha": mtl_alpha, "beta": mtl_beta,
                                "gamma": mtl_gamma, "pcgrad": use_pcgrad,
-                               "initial_lambda_T": mtl_prior_lambda_T},
+                               "calibration": "epoch 1, lambda_T=lambda_S=0.5"},
                     "history": mtl_balancer.history})
         print(f"[adaptive-mtl] conflict history saved ({len(mtl_balancer.history)} epochs)")
 

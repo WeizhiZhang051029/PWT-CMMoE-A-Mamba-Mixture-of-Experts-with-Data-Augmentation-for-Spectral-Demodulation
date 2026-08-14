@@ -168,23 +168,6 @@ class SpectralDataset:
         return item
 
 
-def _apply_hsg_schedule(model, moe_cfg, epoch):
-
-    hsg_cfg = moe_cfg.get("hsg", {}) or {}
-
-    configured_mode = str(hsg_cfg.get("mode", "sparse")).lower()
-
-    warmup_epochs = int(hsg_cfg.get("warmup_epochs", 0))
-
-    if not hasattr(model, "router") or not hasattr(model.router, "set_mode"):
-
-        return
-
-    active_mode = "dense" if configured_mode == "sparse" and epoch <= warmup_epochs else configured_mode
-
-    model.router.set_mode(active_mode)
-
-
 def pretrain_moe(
 
     spectrum_all_norm: np.ndarray,
@@ -263,8 +246,6 @@ def pretrain_moe(
 
         use_moe=bool(moe_cfg.get("use_moe", True)),
 
-        hsg_cfg=moe_cfg.get("hsg", None),
-
         mamba_cfg=moe_cfg.get("mamba", None),
 
     ).to(device)
@@ -294,7 +275,6 @@ def pretrain_moe(
 
     for epoch in range(1, epochs + 1):
 
-        _apply_hsg_schedule(model, moe_cfg, epoch)
 
         model.train()
 

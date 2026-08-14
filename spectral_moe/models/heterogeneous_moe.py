@@ -259,11 +259,10 @@ if nn is not None:
     class HeterogeneousTopKRouter(nn.Module):
 
 
-        def __init__(self, input_dim: int, num_experts: int = 4, top_k: int = 2, mode: str = "sparse", temperature: float = 1.0) -> None:
+        def __init__(self, input_dim: int, num_experts: int = 4, top_k: int = 2, temperature: float = 1.0) -> None:
             super().__init__()
             self.top_k = top_k
             self.num_experts = num_experts
-            self.mode = str(mode)
             self.temperature = max(float(temperature), 1e-4)
             self.gate = nn.Sequential(
                 nn.LayerNorm(input_dim),
@@ -276,21 +275,11 @@ if nn is not None:
             self, x: "torch.Tensor"
         ) -> tuple["torch.Tensor", "torch.Tensor"]:
             logits = self.gate(x)
-            if self.mode == "uniform":
-                return torch.full_like(logits, 1.0 / self.num_experts), logits
             weights = torch.softmax(logits / self.temperature, dim=-1)
-            if self.mode == "dense":
-                return weights, logits
             top_vals, top_idx = torch.topk(weights, self.top_k, dim=-1)
             sparse = torch.zeros_like(weights).scatter(1, top_idx, top_vals)
             sparse = sparse / sparse.sum(dim=-1, keepdim=True).clamp_min(1e-8)
             return sparse, logits
-
-        def set_mode(self, mode: str) -> None:
-            if mode not in {"sparse", "dense", "uniform"}:
-                raise ValueError("unsupported router mode: " + str(mode))
-            self.mode = mode
-
 
     class ConditionEncoder(nn.Module):
 
@@ -475,7 +464,6 @@ if nn is not None:
             physics_heads_cfg: dict | None = None,
             expert_types: list[str] | None = None,
             use_moe: bool = True,
-            hsg_cfg: dict | None = None,
             mamba_cfg: dict | None = None,
         ) -> None:
             super().__init__()
@@ -560,9 +548,10 @@ if nn is not None:
 
 
             actual_top_k = min(top_k, self._n_experts)
-            hsg_cfg = hsg_cfg or {}
-            self.hsg_cfg = dict(hsg_cfg)
-            self.router = (HeterogeneousTopKRouter(hidden_dim, num_experts=self._n_experts, top_k=actual_top_k, mode=str(hsg_cfg.get("mode", "sparse")), temperature=float(hsg_cfg.get("temperature", 1.0))) if self.use_moe else None)
+            # The retained main model always uses Top-2 sparse routing.
+            self.router = (HeterogeneousTopKRouter(
+                hidden_dim, num_experts=self._n_experts, top_k=actual_top_k
+            ) if self.use_moe else None)
 
 
             film_cfg = condition_film_cfg or {}
