@@ -203,7 +203,6 @@ class TorchSpectrumDataset:
         y: np.ndarray | None = None,
         physics: np.ndarray | None = None,
         prior_prediction: np.ndarray | None = None,
-        temp_context: np.ndarray | None = None,
     ):
         try:
             import torch
@@ -217,7 +216,6 @@ class TorchSpectrumDataset:
         self.prior_prediction = (
             None if prior_prediction is None else torch.from_numpy(prior_prediction.astype(np.float32))
         )
-        self.temp_context = None if temp_context is None else torch.from_numpy(temp_context.astype(np.float32))
 
     def __len__(self) -> int:
         return int(self.x.shape[0])
@@ -233,6 +231,4 @@ class TorchSpectrumDataset:
             item["physics"] = self.physics[index]
         if self.prior_prediction is not None:
             item["prior_prediction"] = self.prior_prediction[index]
-        if self.temp_context is not None:
-            item["temp_context"] = self.temp_context[index]
         return item

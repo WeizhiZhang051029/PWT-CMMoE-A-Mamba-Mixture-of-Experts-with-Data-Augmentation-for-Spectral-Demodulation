@@ -21,57 +21,6 @@ def _require_torch() -> None:
 
 if nn is not None:
 
-    class SpectralTempEncoder(nn.Module):
-        """Compact convolutional encoder for raw transmission spectra."""
-
-
-        def __init__(self, out_dim: int = 64, dropout: float = 0.1) -> None:
-            super().__init__()
-            self.conv = nn.Sequential(
-                nn.Conv1d(1,  16, kernel_size=63, stride=8, padding=31),
-                nn.BatchNorm1d(16),
-                nn.GELU(),
-                nn.Conv1d(16, 32, kernel_size=15, stride=4, padding=7),
-                nn.BatchNorm1d(32),
-                nn.GELU(),
-                nn.Conv1d(32, 64, kernel_size=7,  stride=2, padding=3),
-                nn.BatchNorm1d(64),
-                nn.GELU(),
-            )
-
-            self.se = nn.Sequential(
-                nn.AdaptiveAvgPool1d(1),
-                nn.Flatten(),
-                nn.Linear(64, 16),
-                nn.GELU(),
-                nn.Linear(16, 64),
-                nn.Sigmoid(),
-            )
-            self.pool_avg = nn.AdaptiveAvgPool1d(1)
-            self.pool_max = nn.AdaptiveMaxPool1d(1)
-            self.proj = nn.Sequential(
-                nn.Flatten(),
-                nn.LayerNorm(128),
-                nn.Linear(128, out_dim * 2),
-                nn.GELU(),
-                nn.Dropout(dropout),
-                nn.Linear(out_dim * 2, out_dim),
-            )
-
-        def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-            h = self.conv(x.unsqueeze(1))
-            attn = self.se(h).unsqueeze(-1)
-            h = h * attn
-            h = torch.cat([self.pool_avg(h).squeeze(-1), self.pool_max(h).squeeze(-1)], dim=-1)
-            return self.proj(h)
-
-        def encode_features(self, x: "torch.Tensor") -> "torch.Tensor":
-
-            return self.conv(x.unsqueeze(1))
-
-
-if nn is not None:
-
     class MLPExpert(nn.Module):
         """Fully connected expert for resampled spectra and physics features."""
 
@@ -387,21 +336,18 @@ if nn is not None:
             self,
             head_hidden_dim: int,
             n_troughs: int,
-            temp_context_dim: int = 0,
             dropout: float = 0.1,
             residual_scale_init: float = 0.1,
             global_bias_max: float = 0.0,
         ) -> None:
             super().__init__()
             self.n_troughs = n_troughs
-            self.temp_context_dim = temp_context_dim
-
             if n_troughs > 0:
                 self.quad_base = nn.Linear(2 * n_troughs, 1)
-                residual_in = head_hidden_dim + 2 * n_troughs + temp_context_dim
+                residual_in = head_hidden_dim + 2 * n_troughs
             else:
                 self.quad_base = None
-                residual_in = head_hidden_dim + temp_context_dim
+                residual_in = head_hidden_dim
 
             self.residual_mlp = nn.Sequential(
                 nn.LayerNorm(residual_in),
@@ -430,23 +376,16 @@ if nn is not None:
             temp_shared: "torch.Tensor",
             troughs: "torch.Tensor | None",
             trough_sq: "torch.Tensor | None",
-            temp_ctx: "torch.Tensor | None" = None,
         ) -> "torch.Tensor":
             if self.n_troughs > 0 and troughs is not None and trough_sq is not None:
                 T_base = self.quad_base(
                     torch.cat([troughs, trough_sq], dim=-1)
                 )
-                parts = [temp_shared, troughs, trough_sq]
-                if temp_ctx is not None:
-                    parts.append(temp_ctx)
-                T_residual = self.residual_mlp(torch.cat(parts, dim=-1))
+                T_residual = self.residual_mlp(torch.cat([temp_shared, troughs, trough_sq], dim=-1))
                 out = T_base + torch.sigmoid(self.residual_logit) * T_residual
             else:
 
-                parts = [temp_shared]
-                if temp_ctx is not None:
-                    parts.append(temp_ctx)
-                out = self.residual_mlp(torch.cat(parts, dim=-1))
+                out = self.residual_mlp(temp_shared)
             if self.global_bias_max > 0:
                 out = out + torch.tanh(self.global_bias_raw) * self.global_bias_max
             return out
@@ -460,20 +399,17 @@ if nn is not None:
             n_troughs: int,
             dropout: float = 0.1,
             residual_scale_init: float = 0.1,
-            sal_context_dim: int = 0,
             deep_residual: bool = False,
             global_bias_max: float = 0.0,
         ) -> None:
             super().__init__()
             self.n_troughs = n_troughs
-            self.sal_context_dim = int(sal_context_dim)
-
             if n_troughs > 0:
                 self.linear_base = nn.Linear(n_troughs, 1)
-                residual_in = head_hidden_dim + n_troughs + self.sal_context_dim
+                residual_in = head_hidden_dim + n_troughs
             else:
                 self.linear_base = None
-                residual_in = head_hidden_dim + self.sal_context_dim
+                residual_in = head_hidden_dim
 
             if deep_residual:
 
@@ -509,20 +445,13 @@ if nn is not None:
             self,
             sal_shared: "torch.Tensor",
             troughs: "torch.Tensor | None",
-            sal_ctx: "torch.Tensor | None" = None,
         ) -> "torch.Tensor":
             if self.n_troughs > 0 and troughs is not None:
                 S_base = self.linear_base(troughs)
-                parts = [sal_shared, troughs]
-                if sal_ctx is not None and self.sal_context_dim > 0:
-                    parts.append(sal_ctx)
-                S_residual = self.residual_mlp(torch.cat(parts, dim=-1))
+                S_residual = self.residual_mlp(torch.cat([sal_shared, troughs], dim=-1))
                 out = S_base + torch.sigmoid(self.residual_logit) * S_residual
             else:
-                parts = [sal_shared]
-                if sal_ctx is not None and self.sal_context_dim > 0:
-                    parts.append(sal_ctx)
-                out = self.residual_mlp(torch.cat(parts, dim=-1))
+                out = self.residual_mlp(sal_shared)
             if self.global_bias_max > 0:
                 out = out + torch.tanh(self.global_bias_raw) * self.global_bias_max
             return out
@@ -542,7 +471,6 @@ if nn is not None:
             dropout: float = 0.1,
             head_hidden_dim: int = 64,
             decouple_temperature: bool = True,
-            temp_context_out_dim: int = 0,
             condition_film_cfg: dict | None = None,
             physics_heads_cfg: dict | None = None,
             expert_types: list[str] | None = None,
@@ -557,9 +485,6 @@ if nn is not None:
 
 
             self.decouple_temperature = decouple_temperature
-            self.temp_context_out_dim = int(temp_context_out_dim)
-
-
             _all_types = ["mlp", "cnn", "physics", "mamba", "transformer"]
             self.use_moe = bool(use_moe)
             if not self.use_moe:
@@ -652,15 +577,6 @@ if nn is not None:
                 self.film = FeatureWiseAffineFiLM(cond_dim, hidden_dim, film_scale)
 
 
-            if self.temp_context_out_dim > 0:
-                self.temp_encoder = SpectralTempEncoder(
-                    out_dim=self.temp_context_out_dim,
-                    dropout=dropout,
-                )
-            else:
-                self.temp_encoder = None
-
-
             self.shared_head = nn.Sequential(
                 nn.LayerNorm(expert_out_dim),
                 nn.Linear(expert_out_dim, head_hidden_dim),
@@ -682,26 +598,11 @@ if nn is not None:
 
                 gb_temp = float(phys_head_cfg.get("global_bias_max_temperature", 0.0))
                 gb_sal = float(phys_head_cfg.get("global_bias_max_salinity", 0.0))
-                self._salinity_use_spectral_context = bool(
-                    phys_head_cfg.get("salinity_use_spectral_context", False)
-                )
-
-
-                self._salinity_context_detach = bool(
-                    phys_head_cfg.get("salinity_context_detach", False)
-                )
                 sal_deep = bool(phys_head_cfg.get("salinity_deep_residual", False))
-
-                sal_ctx_dim = (
-                    self.temp_context_out_dim
-                    if self._salinity_use_spectral_context and self.temp_context_out_dim > 0
-                    else 0
-                )
 
                 self.temperature_head = QuadraticPhysicsTemperatureHead(
                     head_hidden_dim=head_hidden_dim,
                     n_troughs=n_troughs,
-                    temp_context_dim=self.temp_context_out_dim,
                     dropout=dropout,
                     residual_scale_init=temp_res_scale,
                     global_bias_max=gb_temp,
@@ -711,15 +612,12 @@ if nn is not None:
                     n_troughs=n_troughs,
                     dropout=dropout,
                     residual_scale_init=sal_res_scale,
-                    sal_context_dim=sal_ctx_dim,
                     deep_residual=sal_deep,
                     global_bias_max=gb_sal,
                 )
             else:
 
-                self._salinity_use_spectral_context = False
-                self._salinity_context_detach = False
-                temp_head_in_dim = head_hidden_dim + n_troughs * 2 + self.temp_context_out_dim
+                temp_head_in_dim = head_hidden_dim + n_troughs * 2
                 self.temperature_head = nn.Sequential(
                     nn.Linear(temp_head_in_dim, head_hidden_dim * 2),
                     nn.GELU(),
@@ -783,31 +681,17 @@ if nn is not None:
             trough_sq = troughs ** 2 if troughs is not None else None
 
 
-            temp_ctx = None
-            if self.temp_encoder is not None:
-                if raw_spectrum is not None:
-                    temp_ctx = self.temp_encoder(raw_spectrum)
-                else:
-
-                    temp_ctx = torch.zeros(
-                        spectrum_features.shape[0], self.temp_context_out_dim,
-                        device=spectrum_features.device, dtype=spectrum_features.dtype,
-                    )
-
-
             mixed_for_temp = mixed.detach() if self.decouple_temperature else mixed
             temp_shared = self.shared_head(mixed_for_temp)
 
             if self._use_physics_heads:
 
-                temperature = self.temperature_head(temp_shared, troughs, trough_sq, temp_ctx)
+                temperature = self.temperature_head(temp_shared, troughs, trough_sq)
             else:
 
                 temp_parts = [temp_shared]
                 if troughs is not None:
                     temp_parts.extend([troughs, trough_sq])
-                if temp_ctx is not None:
-                    temp_parts.append(temp_ctx)
                 temperature = self.temperature_head(torch.cat(temp_parts, dim=-1))
 
 
@@ -816,12 +700,7 @@ if nn is not None:
             if self._use_physics_heads:
 
 
-                if self._salinity_use_spectral_context and temp_ctx is not None:
-                    sal_ctx = temp_ctx.detach() if self._salinity_context_detach else temp_ctx
-                else:
-                    sal_ctx = None
-
-                salinity = self.salinity_head(sal_shared, troughs, sal_ctx)
+                salinity = self.salinity_head(sal_shared, troughs)
             else:
 
                 if troughs is not None:

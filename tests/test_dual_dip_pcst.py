@@ -65,18 +65,24 @@ def test_pcst_selector_returns_coverage_aware_continuous_confidence_weights():
     assert np.all(result.confidence > 0)
 
 
-def test_catb_keeps_task_specific_heads_and_temperature_encoder_out_of_shared_projection():
+def test_catb_keeps_only_task_specific_heads_out_of_shared_projection():
     trainable_names = [
         "shared_proj.1.adapter_down.weight",
         "router.gate.1.adapter_up.weight",
         "temperature_head.residual_mlp.0.weight",
         "salinity_head.residual_mlp.0.weight",
-        "temp_encoder.proj.weight",
     ]
     shared = [
         "temperature_head" not in name
         and "salinity_head" not in name
-        and "temp_encoder" not in name
         for name in trainable_names
     ]
-    assert shared == [True, True, False, False, False]
+    assert shared == [True, True, False, False]
+
+
+def test_default_configuration_has_no_temperature_encoder():
+    root = Path(__file__).resolve().parents[1]
+    config = yaml.safe_load((root / "configs" / "config.yaml").read_text(encoding="utf-8"))
+    assert "temp_context_out_dim" not in config["heterogeneous_moe"]
+    assert all("temp_encoder" not in item for item in config["adapter"]["exclude_modules"])
+    assert all("temp_encoder" not in item for item in config["adapter_finetune"]["trainable_name_filters"])

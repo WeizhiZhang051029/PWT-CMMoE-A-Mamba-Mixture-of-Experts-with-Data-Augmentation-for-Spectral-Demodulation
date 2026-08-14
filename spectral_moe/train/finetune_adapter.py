@@ -83,7 +83,6 @@ def _load_pretrained_moe(
     spectrum_dim = int(ckpt["spectrum_dim"])
     phys_dim = in_dim - spectrum_dim
 
-    temp_context_out_dim = int(moe_cfg.get("temp_context_out_dim", 0))
     model = HeterogeneousMoE(
         spectrum_dim=spectrum_dim,
         phys_dim=phys_dim,
@@ -94,7 +93,6 @@ def _load_pretrained_moe(
         dropout=float(moe_cfg.get("dropout", 0.1)),
         head_hidden_dim=int(moe_cfg.get("head_hidden_dim", 64)),
         decouple_temperature=bool(moe_cfg.get("decouple_temperature", True)),
-        temp_context_out_dim=temp_context_out_dim,
         condition_film_cfg=moe_cfg.get("condition_film", None),
         physics_heads_cfg=moe_cfg.get("physics_heads", None),
         expert_types=moe_cfg.get("expert_types", None),
@@ -117,7 +115,6 @@ def _load_pretrained_moe(
         "y_mean": norm["y_mean"], "y_std": norm["y_std"],
         "phys_mean": norm["phys_mean"], "phys_std": norm["phys_std"],
         "trough_indices": trough_indices,
-        "temp_context_out_dim": temp_context_out_dim,
     }
     return model, extra, trough_indices
 
@@ -247,18 +244,9 @@ def main() -> None:
     model, artifacts, trough_indices = _load_pretrained_moe(pretrain_dir, device)
 
     moe_cfg = config.get("heterogeneous_moe", {})
-    if ft_cfg.get("reinit_temp_encoder", False) and model.temp_encoder is not None:
-        from spectral_moe.models.heterogeneous_moe import SpectralTempEncoder as _STE
-        _out_dim = model.temp_context_out_dim
-        _drop = float(moe_cfg.get("dropout", 0.1))
-        model.temp_encoder = _STE(out_dim=_out_dim, dropout=_drop).to(device)
-        print(f"[temperature encoder] reinitialized SE-CNN (out_dim={_out_dim})")
-
     spectrum_mean, spectrum_std = artifacts["spectrum_mean"], artifacts["spectrum_std"]
     y_mean, y_std = artifacts["y_mean"], artifacts["y_std"]
     phys_mean, phys_std = artifacts["phys_mean"], artifacts["phys_std"]
-    temp_context_out_dim = artifacts.get("temp_context_out_dim", 0)
-
 
     feat_cfg = config.get("features", {})
     physics, feature_names = extract_physics_features(
@@ -335,7 +323,7 @@ def main() -> None:
     )
 
 
-    use_raw = (temp_context_out_dim > 0) or ("mamba" in getattr(model, "active_expert_types", []))
+    use_raw = "mamba" in getattr(model, "active_expert_types", [])
     train_ds = SpectralDataset(z_train, phys_train, y_train_s, raw_spectrum=bundle.x[train_idx] if use_raw else None, forward_physics=forward_values[train_idx] if forward_values is not None else None)
     val_ds = SpectralDataset(z_val, phys_val, y_val_s, raw_spectrum=bundle.x[val_idx] if use_raw else None, forward_physics=forward_values[val_idx] if forward_values is not None else None)
     test_ds = SpectralDataset(z_test, phys_test, y_test_s, raw_spectrum=bundle.x[test_idx] if use_raw else None, forward_physics=forward_values[test_idx] if forward_values is not None else None)
@@ -408,32 +396,22 @@ def main() -> None:
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     if not trainable_params:
         raise RuntimeError("No trainable parameters found for adapter fine-tuning.")
-    # CATB/PCGrad applies only to shared adaptation parameters.  The two
-    # prediction heads and the temperature-specific spectral encoder retain
-    # their task-local gradients (theta_T/theta_S in the manuscript).
+    # CATB/PCGrad applies only to shared adaptation parameters; the two
+    # task-specific prediction heads retain their independent gradients.
     trainable_names = [name for name, p in model.named_parameters() if p.requires_grad]
     shared_param_mask = [
         "temperature_head" not in name
         and "salinity_head" not in name
-        and "temp_encoder" not in name
         for name in trainable_names
     ]
 
     base_lr = float(ft_cfg.get("learning_rate", 3e-4))
-    encoder_lr_scale = float(ft_cfg.get("encoder_lr_scale", 1.0))
-    encoder_params, head_params = [], []
-    for name, param in model.named_parameters():
+    head_params = []
+    for _, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if "temp_encoder" in name:
-            encoder_params.append(param)
-        else:
-            head_params.append(param)
-    param_groups = []
-    if encoder_params:
-        param_groups.append({"params": encoder_params, "lr": base_lr * encoder_lr_scale})
-    if head_params:
-        param_groups.append({"params": head_params, "lr": base_lr})
+        head_params.append(param)
+    param_groups = [{"params": head_params, "lr": base_lr}]
 
     if use_uw_loss and uw_log_sigma_T is not None:
         param_groups.append({

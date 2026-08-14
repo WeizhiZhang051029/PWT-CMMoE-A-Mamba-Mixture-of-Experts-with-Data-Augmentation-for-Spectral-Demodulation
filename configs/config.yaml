@@ -42,7 +42,6 @@ heterogeneous_moe:
     warmup_epochs: 0
   dropout: 0.15
   head_hidden_dim: 64
-  temp_context_out_dim: 64
   # Both tasks must contribute gradients to the shared experts/router for CATB.
   decouple_temperature: false
   condition_film:
@@ -114,7 +113,6 @@ adapter:
   exclude_modules:
   - temperature_head
   - salinity_head
-  - temp_encoder.proj
 adapter_finetune:
   output_dir: outputs/adapter
   epochs: 500
@@ -135,7 +133,6 @@ adapter_finetune:
   trainable_name_filters:
   - temperature_head
   - salinity_head
-  - temp_encoder
   ssl_consistency_weight: 0.08
   ssl_noise_std: 0.05
   ssl_warmup_epochs: 30

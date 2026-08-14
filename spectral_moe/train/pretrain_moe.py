@@ -235,8 +235,6 @@ def pretrain_moe(
     )
 
 
-    temp_context_out_dim = int(moe_cfg.get("temp_context_out_dim", 0))
-
     model = HeterogeneousMoE(
 
         spectrum_dim=spectrum_all_norm.shape[1],
@@ -257,8 +255,6 @@ def pretrain_moe(
 
         decouple_temperature=bool(moe_cfg.get("decouple_temperature", True)),
 
-        temp_context_out_dim=temp_context_out_dim,
-
         condition_film_cfg=moe_cfg.get("condition_film", None),
 
         physics_heads_cfg=moe_cfg.get("physics_heads", None),
@@ -272,39 +268,6 @@ def pretrain_moe(
         mamba_cfg=moe_cfg.get("mamba", None),
 
     ).to(device)
-
-
-    masked_encoder_path = pretrain_cfg.get("masked_encoder_path", None)
-
-    if masked_encoder_path and model.temp_encoder is not None:
-
-        import torch as _torch
-
-        enc_path = Path(masked_encoder_path)
-
-        if enc_path.exists():
-
-            state = _torch.load(enc_path, map_location=device, weights_only=True)
-
-            result = model.temp_encoder.load_state_dict(state, strict=False)
-
-            print(f"[Phase 3] loaded SpectralTempEncoder weights from {enc_path}")
-
-            if result.missing_keys:
-
-                print(f"  missing_keys={result.missing_keys}")
-
-            if result.unexpected_keys:
-
-                print(f"  unexpected_keys={result.unexpected_keys}")
-
-        else:
-
-            print(f"[warning] masked encoder checkpoint not found: {enc_path}")
-
-    elif masked_encoder_path and model.temp_encoder is None:
-
-        print("[warning] temperature encoder is disabled because temp_context_out_dim=0")
 
 
     temp_w = float(pretrain_cfg.get("temperature_weight", 1.5))
@@ -402,7 +365,6 @@ def pretrain_moe(
 
             saved_cfg = dict(moe_cfg)
 
-            saved_cfg["temp_context_out_dim"] = temp_context_out_dim
 
             torch.save({
                 "model": model.state_dict(),
@@ -883,10 +845,8 @@ def main() -> None:
         print("[Phase 3] decouple_temperature=False (temperature loss updates the backbone)")
 
 
-    _uses_raw_spectrum = int(moe_cfg.get("temp_context_out_dim", 0)) > 0 or (
-
-        any(str(t).lower() in {"mamba", "transformer"} for t in moe_cfg.get("expert_types", []))
-
+    _uses_raw_spectrum = any(
+        str(t).lower() == "mamba" for t in moe_cfg.get("expert_types", [])
     )
 
     if _uses_raw_spectrum:
