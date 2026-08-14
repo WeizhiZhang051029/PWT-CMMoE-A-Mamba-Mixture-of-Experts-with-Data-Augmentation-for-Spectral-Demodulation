@@ -265,7 +265,7 @@ def main() -> None:
         bundle.x_raw_dbm, bundle.wavelength_nm,
         num_dips=int(feat_cfg.get("num_dips", 6)),
         num_bands=int(feat_cfg.get("num_bands", 8)),
-        tracked_centers_nm=feat_cfg.get("tracked_centers_nm", [1599.0]),
+        tracked_centers_nm=feat_cfg.get("tracked_centers_nm", [1516.0, 1599.0]),
         tracked_half_window_nm=float(feat_cfg.get("tracked_half_window_nm", 35.0)),
     )
     forward_cfg = ft_cfg.get("forward_physics", {})

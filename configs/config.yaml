@@ -40,7 +40,8 @@ heterogeneous_moe:
   dropout: 0.15
   head_hidden_dim: 64
   temp_context_out_dim: 64
-  decouple_temperature: true
+  # Both tasks must contribute gradients to the shared experts/router for CATB.
+  decouple_temperature: false
   condition_film:
     enabled: true
     condition_source: physics
@@ -98,8 +99,9 @@ pretrain:
   temperature_weight: 3.5
   salinity_weight: 1.0
   load_balance_weight: 0.005
-  synthetic_weight: 0.05
-  decouple_temperature_pretrain: true
+  # PCST confidence is normalized to mean one and used directly in pretraining.
+  synthetic_weight: 1.0
+  decouple_temperature_pretrain: false
   synthetic_only: true
 adapter:
   enabled: true

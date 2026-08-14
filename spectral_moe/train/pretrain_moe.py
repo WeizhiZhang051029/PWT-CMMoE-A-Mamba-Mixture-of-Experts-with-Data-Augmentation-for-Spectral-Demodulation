@@ -27,7 +27,12 @@ from spectral_moe.data.physical_features import (
 
 from spectral_moe.evaluate.metrics import regression_metrics
 
-from spectral_moe.evaluate.synthetic_quality import synthetic_acceptance_mask, synthetic_quality_report
+from spectral_moe.evaluate.conditional_synthetic_quality import select_cmi_pcqd
+from spectral_moe.evaluate.synthetic_quality import (
+    real_manifold_distances,
+    synthetic_acceptance_mask,
+    synthetic_quality_report,
+)
 
 from spectral_moe.train.physics_consistency import fit_forward_trough_calibrator, predict_forward_troughs
 
@@ -518,7 +523,7 @@ def main() -> None:
 
         num_bands=int(feat_cfg.get("num_bands", 8)),
 
-        tracked_centers_nm=feat_cfg.get("tracked_centers_nm", [1599.0]),
+        tracked_centers_nm=feat_cfg.get("tracked_centers_nm", [1516.0, 1599.0]),
 
         tracked_half_window_nm=float(feat_cfg.get("tracked_half_window_nm", 35.0)),
 
@@ -579,6 +584,9 @@ def main() -> None:
 
     gan_synthetic_path = pretrain_cfg.get("gan_synthetic_path")
 
+    n_synthetic = 0
+    synthetic_confidence = None
+
 
     if gan_synthetic_path:
 
@@ -602,6 +610,8 @@ def main() -> None:
 
         n_synthetic = len(x_synth_spectrum)
 
+        synthetic_confidence = np.ones(n_synthetic, dtype=np.float32)
+
         spectrum_synth_norm = ((x_synth_spectrum - spectrum_mean) / spectrum_std).astype(np.float32)
 
         phys_synth_raw, _ = extract_physics_features(
@@ -612,7 +622,7 @@ def main() -> None:
 
             num_bands=int(feat_cfg.get("num_bands", 8)),
 
-            tracked_centers_nm=feat_cfg.get("tracked_centers_nm", [1599.0]),
+            tracked_centers_nm=feat_cfg.get("tracked_centers_nm", [1516.0, 1599.0]),
 
             tracked_half_window_nm=float(feat_cfg.get("tracked_half_window_nm", 35.0)),
 
@@ -686,7 +696,7 @@ def main() -> None:
 
                 quality["quality_gate"] = gate_audit
 
-                synthetic_weight_cfg = float(pretrain_cfg.get("synthetic_weight", 0.05))
+                synthetic_weight_cfg = float(pretrain_cfg.get("synthetic_weight", 1.0))
 
                 if synthetic_weight_cfg <= 0:
 
@@ -717,11 +727,55 @@ def main() -> None:
 
                 quality["quality_gate"]["target_accepted_count_for_one_to_one_weight"] = target_accepted
 
+                synthetic_confidence = None
                 if int(accepted.sum()) >= min_accepted:
 
                     accepted_idx = np.flatnonzero(accepted)
 
-                    if len(accepted_idx) > target_accepted:
+                    selector_cfg = gate_cfg.get("cmi_pcqd_selector", {}) or {}
+                    if bool(selector_cfg.get("enabled", False)):
+                        trough_mae = np.mean(
+                            np.abs(observed_wavelengths - expected_wavelengths), axis=1
+                        )
+                        nearest, manifold_radius = real_manifold_distances(
+                            audit_real,
+                            audit_synthetic,
+                            percentile=float(gate_cfg.get("manifold_percentile", 95.0)),
+                        )
+                        selection = select_cmi_pcqd(
+                            F_real=audit_real,
+                            y_real=bundle.y[train_idx],
+                            z_real_norm=spectrum_train_norm,
+                            F_syn=audit_synthetic,
+                            y_syn=y_synth_raw,
+                            z_syn_norm=spectrum_synth_norm,
+                            trough_mae_syn_nm=trough_mae,
+                            nearest_manifold_dist_syn=nearest,
+                            manifold_radius=manifold_radius,
+                            max_conditional_trough_mae_nm=float(
+                                selector_cfg.get("soft_trough_mae_nm", 8.0)
+                            ),
+                            hard_reject_trough_mae_nm=float(
+                                selector_cfg.get("hard_reject_trough_mae_nm", 16.0)
+                            ),
+                            target_count=target_accepted,
+                            min_accepted_samples=min_accepted,
+                            condition_bins=tuple(selector_cfg.get("condition_bins", [4, 4])),
+                            diversity_weight=float(selector_cfg.get("diversity_weight", 0.30)),
+                            min_per_nonempty_bin=int(selector_cfg.get("min_per_nonempty_bin", 50)),
+                            knn_k=int(selector_cfg.get("knn_k", 7)),
+                            tau_quantile=float(selector_cfg.get("tau_quantile", 0.90)),
+                            w_phys=float(selector_cfg.get("w_phys", 0.20)),
+                            w_manifold=float(selector_cfg.get("w_manifold", 0.15)),
+                            w_temp=float(selector_cfg.get("w_temp", 0.20)),
+                            w_sal=float(selector_cfg.get("w_sal", 0.45)),
+                            confidence_clip=tuple(selector_cfg.get("confidence_clip", [0.25, 2.0])),
+                            seed=seed,
+                        )
+                        accepted_idx = selection.selected_idx
+                        synthetic_confidence = selection.confidence
+                        quality["cmi_pcqd_selector"] = selection.audit
+                    elif len(accepted_idx) > target_accepted:
 
                         rng = np.random.default_rng(seed + 42017)
 
@@ -737,6 +791,11 @@ def main() -> None:
 
                     phys_synth = phys_synth[accepted_idx]
 
+                    if synthetic_confidence is None:
+                        synthetic_confidence = np.ones(len(accepted_idx), dtype=np.float32)
+                    else:
+                        synthetic_confidence = synthetic_confidence.astype(np.float32)
+
                     n_synthetic = len(x_synth_spectrum)
 
                     quality["quality_gate"]["fallback_to_real_only"] = False
@@ -747,6 +806,8 @@ def main() -> None:
 
 
                     n_synthetic = 0
+
+                    synthetic_confidence = None
 
                     quality["quality_gate"]["fallback_to_real_only"] = True
 
@@ -772,7 +833,24 @@ def main() -> None:
     print("=" * 60)
 
 
-    if n_synthetic > 0:
+    synthetic_only = bool(pretrain_cfg.get("synthetic_only", False))
+    if synthetic_only and n_synthetic <= 0:
+        raise RuntimeError(
+            "pretrain.synthetic_only=true requires PCST-selected synthetic spectra; "
+            "the quality gate retained none"
+        )
+
+    if n_synthetic > 0 and synthetic_only:
+
+        y_synth_norm = ((y_synth_raw - y_mean) / y_std).astype(np.float32)
+
+        spectrum_all_norm = spectrum_synth_norm
+
+        phys_all = phys_synth
+
+        y_all_norm = y_synth_norm
+
+    elif n_synthetic > 0:
 
         y_synth_norm = ((y_synth_raw - y_mean) / y_std).astype(np.float32)
 
@@ -813,7 +891,11 @@ def main() -> None:
 
     if _uses_raw_spectrum:
 
-        if n_synthetic > 0:
+        if n_synthetic > 0 and synthetic_only:
+
+            raw_spectrum_all = x_synth_spectrum.astype(np.float32)
+
+        elif n_synthetic > 0:
 
             raw_spectrum_all = np.concatenate(
 
@@ -832,17 +914,25 @@ def main() -> None:
         raw_spectrum_all = None
 
 
-    if n_synthetic > 0:
+    if n_synthetic > 0 and synthetic_only:
+
+        print(f"  training samples: synthetic={len(spectrum_synth_norm)} (PCST-selected only)")
+
+        synthetic_weight = 1.0
+
+        sample_weight = synthetic_confidence
+
+    elif n_synthetic > 0:
 
         print(f"  training samples: real={len(spectrum_train_norm)}, synthetic={len(spectrum_synth_norm)}, total={len(spectrum_all_norm)}")
 
-        synthetic_weight = float(pretrain_cfg.get("synthetic_weight", 0.25))
+        synthetic_weight = float(pretrain_cfg.get("synthetic_weight", 1.0))
 
         sample_weight = np.concatenate([
 
             np.ones(len(spectrum_train_norm), dtype=np.float32),
 
-            np.full(len(spectrum_synth_norm), synthetic_weight, dtype=np.float32),
+            synthetic_weight * synthetic_confidence,
 
         ])
 

@@ -54,7 +54,8 @@ def extract_physics_features(
         "first_derivative_std",
         "second_derivative_std",
     ]
-    tracked_centers = [float(v) for v in (tracked_centers_nm or [1599.0])]
+    # The manuscript's physics constraint is defined jointly on dip 1 and dip 2.
+    tracked_centers = [float(v) for v in (tracked_centers_nm or [1516.0, 1599.0])]
     tracked_half_window = float(tracked_half_window_nm)
     for center in tracked_centers:
         label = int(round(center))

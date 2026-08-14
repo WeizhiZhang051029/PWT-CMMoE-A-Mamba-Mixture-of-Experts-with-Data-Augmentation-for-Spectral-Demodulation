@@ -68,6 +68,34 @@ def nearest_reference_coverage(reference: np.ndarray, generated: np.ndarray, per
     return float(np.mean(gen_distance <= radius))
 
 
+def real_manifold_distances(
+    reference: np.ndarray,
+    query: np.ndarray,
+    *,
+    percentile: float = 95.0,
+) -> tuple[np.ndarray, float]:
+    """Return normalized nearest-real distances and the leave-one-out radius.
+
+    This is the common manifold metric used by PCST screening, confidence
+    scoring, and diversity-aware selection.  Keeping it in one function
+    prevents those stages from using subtly different distance scales.
+    """
+    reference = np.asarray(reference, dtype=np.float64)
+    query = np.asarray(query, dtype=np.float64)
+    if reference.ndim != 2 or query.ndim != 2 or reference.shape[1] != query.shape[1]:
+        raise ValueError("reference and query must be 2-D with matching feature dimensions")
+    if len(reference) < 3:
+        raise ValueError("reference needs at least three samples")
+    scale = reference.std(axis=0, keepdims=True)
+    scale[scale < 1e-8] = 1.0
+    ref = reference / scale
+    qry = query / scale
+    radius = float(np.percentile(
+        _nearest_distances(ref, ref, exclude_self=True), percentile
+    ))
+    return _nearest_distances(qry, ref), radius
+
+
 def synthetic_acceptance_mask(
     reference_features: np.ndarray,
     synthetic_features: np.ndarray,
@@ -89,14 +117,9 @@ def synthetic_acceptance_mask(
         raise ValueError("feature arrays must be 2-D with matching feature dimensions")
     if observed.shape != expected.shape or observed.shape[0] != synthetic.shape[0]:
         raise ValueError("trough arrays must match and align with synthetic_features")
-    scale = reference.std(axis=0, keepdims=True)
-    scale[scale < 1e-8] = 1.0
-    ref = reference / scale
-    syn = synthetic / scale
-    radius = float(np.percentile(
-        _nearest_distances(ref, ref, exclude_self=True), manifold_percentile
-    ))
-    nearest = _nearest_distances(syn, ref)
+    nearest, radius = real_manifold_distances(
+        reference, synthetic, percentile=manifold_percentile
+    )
     trough_mae = np.mean(np.abs(observed - expected), axis=1)
     accepted = (trough_mae <= max_conditional_trough_mae_nm) & (nearest <= radius)
 
