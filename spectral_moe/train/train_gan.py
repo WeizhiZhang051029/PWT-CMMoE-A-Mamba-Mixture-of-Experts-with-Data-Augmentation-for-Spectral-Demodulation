@@ -199,9 +199,12 @@ def main() -> None:
 
         centers = list(pinn_cfg.get("tracked_centers_nm", []))
 
-        if not centers:
+        if len(centers) != 2:
 
-            raise ValueError("gan.pinn requires at least one tracked_centers_nm value")
+            raise ValueError(
+                "gan.pinn requires exactly two ordered tracked_centers_nm values "
+                "for the joint dip-1/dip-2 physics constraint"
+            )
 
         nominal_thickness = float(pinn_cfg.get("wall_thickness_um", 26.5))
 
@@ -405,6 +408,7 @@ def main() -> None:
 
                 fake_raw = fake_raw_for_regularizers
 
+                # [batch, 2]: differentiable locations of dip 1 and dip 2.
                 observed = soft_trough_locations(
 
                     fake_raw, wavelength_grid, pinn_cfg["tracked_centers_nm"],

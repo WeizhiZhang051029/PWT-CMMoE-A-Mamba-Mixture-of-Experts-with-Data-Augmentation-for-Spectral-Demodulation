@@ -19,7 +19,9 @@ data:
 features:
   num_dips: 6
   num_bands: 8
+  # The two AR resonance dips used throughout PWT-CMMoE (dip 1, dip 2).
   tracked_centers_nm:
+  - 1516.0
   - 1599.0
   tracked_half_window_nm: 35.0
 heterogeneous_moe:
@@ -159,7 +161,11 @@ gan:
   moment_weight: 1.0
   pinn:
     enabled: true
+    # Keep the same ordered two-dip vector as features.tracked_centers_nm.
+    # The physics loss and PCST both average the absolute position errors
+    # of these two resonance dips.
     tracked_centers_nm:
+    - 1516.0
     - 1599.0
     half_window_nm: 35.0
     auto_calibrate: true
@@ -172,6 +178,6 @@ gan:
     max_cladding_index_correction: 0.005
     fixed_point_steps: 12
     strict_weight: 0.15
-    strict_scale_nm: 10.0
+    strict_scale_nm: 1.0
     empirical_soft_weight: 0.1
-    soft_scale_nm: 10.0
+    soft_scale_nm: 1.0

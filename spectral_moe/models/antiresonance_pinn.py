@@ -213,7 +213,11 @@ if nn is not None:
 
         if scale_nm <= 0:
             raise ValueError("scale_nm must be positive")
-        return ((observed_troughs_nm - expected_troughs_nm) / scale_nm).square().mean()
+        if observed_troughs_nm.shape != expected_troughs_nm.shape:
+            raise ValueError("observed and expected trough tensors must have matching shapes")
+        # Mean over batch and resonance order.  With the configured two-dip
+        # vector, this is exactly 1/2 sum_{k=1}^{2}|lambda_hat_k-lambda_PINN,k|.
+        return (observed_troughs_nm - expected_troughs_nm).abs().mean() / scale_nm
 
 
 else:

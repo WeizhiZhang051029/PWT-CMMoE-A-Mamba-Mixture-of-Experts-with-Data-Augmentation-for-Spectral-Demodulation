@@ -497,6 +497,17 @@ def main() -> None:
 
     feat_cfg = config.get("features", {})
 
+    pinn_cfg = config.get("gan", {}).get("pinn", {})
+    pinn_centers = list(pinn_cfg.get("tracked_centers_nm", []))
+    feature_centers = list(feat_cfg.get("tracked_centers_nm", []))
+    if bool(pinn_cfg.get("enabled", False)) and (
+        len(feature_centers) != 2 or feature_centers != pinn_centers
+    ):
+        raise ValueError(
+            "features.tracked_centers_nm and gan.pinn.tracked_centers_nm must be the "
+            "same ordered two-dip vector for dual-dip PCST evaluation"
+        )
+
     physics, feature_names = extract_physics_features(
 
         bundle.x_raw_dbm,
