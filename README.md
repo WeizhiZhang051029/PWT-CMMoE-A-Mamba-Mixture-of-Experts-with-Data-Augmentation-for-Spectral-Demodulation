@@ -50,11 +50,11 @@ The experimental platform consists of a supercontinuum light source (SLS), the p
 
 ## 🔥 Highlights
 
-* **Physics-guided data augmentation:** jointly constrains the two measured anti-resonance dips in WGAN-GP, using the mean absolute dip-position error under each temperature--salinity condition.
-* **Physics-Consistent Sample Teacher:** screens generated spectra using the same two-dip mean position error, manifold proximity, and inverse consistency, then assigns confidence weights to physically reliable samples.
-* **Heterogeneous sparse expert routing:** adopts Top-2 routing to activate complementary experts for input-adaptive spectral representation learning.
-* **Bidirectional Mamba modeling:** captures long-range dependencies and cross-band correlations within full transmission spectra.
-* **Conflict-aware task balancing:** alleviates task imbalance and gradient conflicts in joint temperature and salinity demodulation.
+* **Physics-guided augmentation: ** embeds AR physics into WGAN-GP for spectrum generation.
+* **Physics-Consistent Sample Teacher:** screens and weights high-confidence spectra.
+* **Heterogeneous sparse expert routing:** activates complementary experts with Top-2 routing.
+* **Bidirectional Mamba modeling:** captures long-range and cross-band spectral dependencies.
+* **Conflict-aware task balancing:** mitigates task imbalance and gradient conflicts.
 
 ## 🧩 Framework
 
