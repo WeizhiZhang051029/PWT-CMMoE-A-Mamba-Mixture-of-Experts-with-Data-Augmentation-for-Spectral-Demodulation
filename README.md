@@ -50,7 +50,7 @@ The experimental platform consists of a supercontinuum light source (SLS), the p
 
 ## 🔥 Highlights
 
-* **Physics-guided augmentation: ** embeds AR physics into WGAN-GP for spectrum generation.
+* **Physics-guided augmentation:** embeds AR physics into WGAN-GP for spectrum generation.
 * **Physics-Consistent Sample Teacher:** screens and weights high-confidence spectra.
 * **Heterogeneous sparse expert routing:** activates complementary experts with Top-2 routing.
 * **Bidirectional Mamba modeling:** captures long-range and cross-band spectral dependencies.
