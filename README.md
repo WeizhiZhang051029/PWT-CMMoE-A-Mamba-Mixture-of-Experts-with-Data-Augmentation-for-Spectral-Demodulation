@@ -50,11 +50,11 @@ The experimental platform consists of a supercontinuum light source (SLS), the p
 
 ## 🔥 Highlights
 
-* **Physics-guided augmentation:** embeds AR physics into WGAN-GP for spectrum generation.
-* **Physics-Consistent Sample Teacher:** screens and weights high-confidence spectra.
-* **Heterogeneous expert routing:** activates complementary experts with Top-2 routing.
-* **Bidirectional Mamba:** captures long-range and cross-band spectral dependencies.
-* **Conflict-aware task balancing:** mitigates task imbalance and gradient conflicts.
+* PWT-CMMoE framework is proposed for data-scarce multi-parameter demodulation.
+* PWT combines physics-constrained WGAN-GP and PCST for reliable spectrum augmentation.
+* CMMoE combines sparse heterogeneous experts with bidirectional Mamba modeling.
+* Achieves state-of-the-art performance on the real-world spectral dataset.
+* Demonstrates robustness and cross-dataset transferability across different sensors.
 
 ## 🧩 Framework
 
