@@ -289,7 +289,7 @@ If you find this repository useful in your research or project, please consider 
 ```bibtex
 @article{zhang2026pwtcmmoe,
   title   = {PWT-CMMoE: A Mamba Mixture-of-Experts with Data Augmentation for Spectral Demodulation under Data Scarcity},
-  author={Zhang, Weizhi and Li, Yiteng and Liu, Yanze and Xie, Yuhan and Zhao, Jian and Zhang, Yanan and Zhao, Yong},
+  author  = {Zhang, Weizhi and Li, Yiteng and Liu, Yanze and Xie, Yuhan and Zhao, Jian and Zhang, Yanan and Zhao, Yong},
   year    = {2026}
 }
 ```
