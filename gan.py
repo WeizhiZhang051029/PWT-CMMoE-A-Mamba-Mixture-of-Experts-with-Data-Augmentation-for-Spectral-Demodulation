@@ -289,23 +289,6 @@ else:
 
 """Conditional WGAN-GP components used by the training pipeline."""
 
-
-
-try:
-
-    import torch
-
-    from torch import nn
-
-except ImportError:
-
-    torch = None
-
-    nn = None
-
-
-
-
 if nn is not None:
 
 

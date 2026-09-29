@@ -604,11 +604,6 @@ def select_cmi_pcqd(
         confidence=confidence.astype(np.float32),
         audit=audit,
     )
-
-
-import numpy as np
-
-
 def _covariance(x: np.ndarray) -> np.ndarray:
     x = np.asarray(x, dtype=np.float64)
     if x.ndim != 2 or len(x) < 2:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import json
 import random
@@ -198,16 +199,6 @@ def subsample_train_indices(train_idx: np.ndarray, *, fraction: float, seed: int
 
 """Dataset loading and wavelength-grid utilities."""
 
-
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
-
-import numpy as np
-import pandas as pd
-
-
-
 @dataclass
 class SpectrumBundle:
     """Aligned spectra, labels, and metadata used by the training pipeline."""
@@ -305,7 +296,6 @@ def load_spectrum_bundle(config: dict[str, Any]) -> SpectrumBundle:
 
         align_candidate = Path(str(align_npz))
         if not align_candidate.is_absolute():
-            from utils import PROJECT_ROOT
             align_candidate = (PROJECT_ROOT / align_candidate).resolve()
         if not align_candidate.exists():
             raise FileNotFoundError(f"align_to_wavelength_npz not found: {align_candidate}")

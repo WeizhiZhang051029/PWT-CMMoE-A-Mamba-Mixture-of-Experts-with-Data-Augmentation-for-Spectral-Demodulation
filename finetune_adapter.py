@@ -343,10 +343,31 @@ def main() -> None:
 
 
     selection_metric_kind = str(ft_cfg.get("selection_metric_kind", "weighted_mse"))
+    consistency_weight = float(ft_cfg.get("consistency_weight", 0.0))
+    consistency_noise_std = float(ft_cfg.get("consistency_noise_std", 0.05))
+    consistency_warmup_epochs = int(ft_cfg.get("consistency_warmup_epochs", 0))
+    if consistency_weight < 0 or consistency_noise_std < 0:
+        raise ValueError("consistency_weight and consistency_noise_std must be non-negative")
+    if consistency_weight > 0:
+        print(
+            f"[Consistency] weight={consistency_weight}, "
+            f"noise_std={consistency_noise_std}, "
+            f"warmup={consistency_warmup_epochs} epochs"
+        )
     best_val = float("inf")
     best_epoch = 0
     stale = 0
     val_ema = None
+
+    def _consistency_loss(pred_clean, z, phy, raw):
+        z_perturbed = z + torch.randn_like(z) * consistency_noise_std
+        phy_perturbed = phy + torch.randn_like(phy) * consistency_noise_std
+        raw_perturbed = (
+            raw + torch.randn_like(raw) * consistency_noise_std
+            if raw is not None else None
+        )
+        out_perturbed = model(z_perturbed, phy_perturbed, raw_spectrum=raw_perturbed)
+        return torch.mean((pred_clean - out_perturbed["prediction"]) ** 2)
 
 
     print(f"\n[Adapter fine-tuning] epochs={epochs}, patience={patience}")
@@ -361,6 +382,9 @@ def main() -> None:
         _mtl_lT_buf = []
         _mtl_lS_buf = []
         _mtl_conflict_buf = []
+        consistency_active = (
+            consistency_weight > 0 and epoch > consistency_warmup_epochs
+        )
         for batch in train_loader:
             z = batch["z"].to(device)
             phy = batch["physics"].to(device)
@@ -374,6 +398,10 @@ def main() -> None:
             loss_s = torch.mean((pred[:, 1:2] - y[:, 1:2]) ** 2)
             bal = out["route_weights"].mean(dim=0)
             bal_loss = torch.sum(bal * torch.softmax(bal, dim=0)) * 4
+            consistency_term = (
+                consistency_weight * _consistency_loss(pred, z, phy, raw)
+                if consistency_active else None
+            )
 
             if use_adaptive_mtl and mtl_balancer is not None:
                 lT = mtl_balancer.lambda_T
@@ -399,9 +427,16 @@ def main() -> None:
                           else torch.zeros_like(p) for p in trainable_params]
                     optimizer.zero_grad()
 
+                    if consistency_term is not None:
+                        consistency_term.backward(retain_graph=True)
+                    gC = [p.grad.detach().clone() if p.grad is not None
+                          else torch.zeros_like(p) for p in trainable_params]
+                    optimizer.zero_grad()
+
                     gT_flat = torch.cat([g.reshape(-1) for g, shared in zip(gT, shared_param_mask) if shared])
                     gS_flat = torch.cat([g.reshape(-1) for g, shared in zip(gS, shared_param_mask) if shared])
                     gB_flat = torch.cat([g.reshape(-1) for g, shared in zip(gB, shared_param_mask) if shared])
+                    gC_flat = torch.cat([g.reshape(-1) for g, shared in zip(gC, shared_param_mask) if shared])
                     cos_TS = (torch.dot(gT_flat, gS_flat)
                               / (gT_flat.norm() * gS_flat.norm() + 1e-8))
                     C_batch = float(max(0.0, -cos_TS.item()))
@@ -418,21 +453,27 @@ def main() -> None:
                                   / (gT_orig.norm() ** 2 + 1e-8)) * gT_orig
                         gS_flat = gS_orig - proj_S
 
-                    gc_shared = lT * gT_flat + lS * gS_flat + gB_flat
+                    gc_shared = lT * gT_flat + lS * gS_flat + gB_flat + gC_flat
                     _off = 0
-                    for _p, _gT, _gS, _gB, _is_shared in zip(trainable_params, gT, gS, gB, shared_param_mask):
+                    for _p, _gT, _gS, _gB, _gC, _is_shared in zip(
+                        trainable_params, gT, gS, gB, gC, shared_param_mask
+                    ):
                         if _is_shared:
                             _sz = _p.numel()
                             _p.grad = gc_shared[_off:_off + _sz].reshape(_p.shape).clone()
                             _off += _sz
                         else:
-                            _p.grad = (lT * _gT + lS * _gS + _gB).clone()
+                            _p.grad = (lT * _gT + lS * _gS + _gB + _gC).clone()
                     torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
                     optimizer.step()
                     loss_log = (lT * float(loss_t.item()) + lS * float(loss_s.item())
-                                + bal_w * float(bal_loss.item()))
+                                + bal_w * float(bal_loss.item())
+                                + (float(consistency_term.item())
+                                   if consistency_term is not None else 0.0))
                 else:
                     loss = lT * loss_t + lS * loss_s + bal_w * bal_loss
+                    if consistency_term is not None:
+                        loss = loss + consistency_term
                     optimizer.zero_grad()
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
@@ -446,6 +487,8 @@ def main() -> None:
 
 
             loss = temp_w * loss_t + sal_w * loss_s + bal_w * bal_loss
+            if consistency_term is not None:
+                loss = loss + consistency_term
 
             optimizer.zero_grad()
             loss.backward()
@@ -554,6 +597,9 @@ def main() -> None:
         "selection_temperature_weight": selection_temp_weight,
         "selection_salinity_weight": selection_sal_weight,
         "selection_metric_kind": selection_metric_kind,
+        "consistency_weight": consistency_weight,
+        "consistency_noise_std": consistency_noise_std,
+        "consistency_warmup_epochs": consistency_warmup_epochs,
         "lr_warmup_epochs": lr_warmup_epochs,
         "lr_warmup_start_factor": warmup_start_factor,
         "use_adaptive_mtl": use_adaptive_mtl,

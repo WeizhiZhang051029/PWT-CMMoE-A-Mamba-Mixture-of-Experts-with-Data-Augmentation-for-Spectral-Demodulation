@@ -113,6 +113,9 @@ adapter_finetune:
   selection_metric_kind: weighted_mae
   selection_temperature_weight: 2.0
   selection_salinity_weight: 1.0
+  consistency_weight: 0.08
+  consistency_noise_std: 0.05
+  consistency_warmup_epochs: 30
   scheduler_T0: 150
   scheduler_T_mult: 2
   trainable_name_filters:
