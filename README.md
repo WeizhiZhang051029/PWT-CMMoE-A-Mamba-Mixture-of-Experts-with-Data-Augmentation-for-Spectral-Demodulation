@@ -183,54 +183,6 @@ python train.py --stage finetune \
 
 During this stage, the pretrained CMMoE is adapted to measured spectra, while CATB coordinates the temperature and salinity tasks through dynamic task prioritization, conflict-aware gating, and PCGrad-based gradient correction.
 
-## 📁 Repository Structure
-
-```text
-PWT-CMMoE/
-├── configs/
-│   └── config.yaml
-├── data/                         # user-provided; not included
-│   ├── spectra.npz
-│   └── labels.csv
-├── models/
-│   ├── __init__.py
-│   ├── gan.py                    # WGAN-GP and anti-resonance physics modules
-│   └── moe.py                    # heterogeneous MoE, Mamba, and adapters
-├── data.py                       # data loading and dataset utilities
-├── physics.py                    # physical features and PCST utilities
-├── train.py                      # unified training entrypoint
-├── images/
-├── requirements.txt
-└── README.md
-```
-
-## 📈 Outputs
-
-All generated training artifacts are saved in the `outputs/` directory:
-
-```text
-outputs/
-├── gan/
-│   ├── gan_final.pt
-│   ├── gan_synthetic.npz
-│   └── pinn_calibration.json
-├── pretrain/
-│   ├── pretrained_moe_best.pt
-│   ├── normalization.npz
-│   └── pretrain_summary.json
-└── adapter/
-    ├── best_adapter.pt
-    ├── training_summary.json
-    └── mtl_conflict_history.json
-```
-
-The outputs include:
-
-* trained model checkpoints;
-* generated candidate spectra;
-* PCST-selected synthetic spectra and confidence weights;
-* normalization statistics and training summaries;
-* CATB task-weight and gradient-conflict history.
 
 ## 📏 Evaluation Metrics
 
