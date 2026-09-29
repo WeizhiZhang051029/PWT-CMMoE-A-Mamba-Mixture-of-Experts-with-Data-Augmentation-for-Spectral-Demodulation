@@ -11,9 +11,9 @@ from pathlib import Path
 import numpy as np
 
 
-from dataset import TorchSpectrumDataset, load_spectrum_bundle
+from data import TorchSpectrumDataset, load_spectrum_bundle
 
-from antiresonance_pinn import (
+from gan import (
 
     AntiResonanceConfig,
 
@@ -37,17 +37,17 @@ from gan import (
 
 )
 
-from gan_components import smoothness_loss
+from gan import smoothness_loss
 
 from physics import design_matrix
 
-from utils import load_config
+from data import load_config
 
-from utils import ensure_dir, write_json
+from data import ensure_dir, write_json
 
-from utils import set_seed
+from data import set_seed
 
-from utils import (
+from data import (
     resolve_split_seed,
     split_from_config,
     subsample_train_indices,
@@ -73,7 +73,25 @@ def main() -> None:
 
     parser.add_argument("--force", action="store_true")
 
+    parser.add_argument("--generate-only", action="store_true")
+
+    parser.add_argument("--checkpoint")
+
+    parser.add_argument("--output")
+
+    parser.add_argument("--n-synthetic", type=int, default=None)
+
     args = parser.parse_args()
+
+    if args.generate_only:
+
+        if not args.checkpoint or not args.output:
+
+            parser.error("--generate-only requires --checkpoint and --output")
+
+        generate_synthetic(args.config, args.checkpoint, args.output, args.n_synthetic)
+
+        return
 
 
     config = load_config(args.config)
@@ -451,6 +469,109 @@ def main() -> None:
         Path(output_dir) / "gan_final.pt",
 
     )
+
+
+def generate_synthetic(config_path: str, checkpoint_path: str, output_path: str, n_synthetic: int | None = None) -> None:
+
+    import torch
+
+    config = load_config(config_path)
+
+    if bool(config.get("data", {}).get("use_zscore", True)):
+
+        raise ValueError("GAN-to-MoE chain requires data.use_zscore=false so generated spectra are in raw dBm")
+
+    seed = int(config.get("seed", 42))
+
+    set_seed(seed)
+
+    bundle = load_spectrum_bundle(config)
+
+    gan_cfg = config.get("gan", {})
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
+    latent_dim = int(gan_cfg.get("latent_dim", 64))
+
+    if str(checkpoint.get("representation", "")).lower() != "resampled_spectrum":
+
+        raise ValueError("checkpoint was not trained on the configured resampled spectrum")
+
+    generator = ConditionalGenerator(latent_dim, 2, bundle.x.shape[1]).to(device)
+
+    generator.load_state_dict(checkpoint["generator"], strict=True)
+
+    generator.eval()
+
+    n = n_synthetic or int(gan_cfg.get("n_synthetic", 2000))
+
+    batch_size = int(gan_cfg.get("sample_batch_size", 64))
+
+    rng = np.random.default_rng(seed + 30000)
+
+    split_cfg = config.get("data", {}).get("split", {})
+
+    split_seed = resolve_split_seed(split_cfg, seed)
+
+    train_idx, _ = split_from_config(
+
+        len(bundle.y), seed=split_seed, split_cfg=split_cfg,
+
+        labels=bundle.labels, x_raw_dbm=bundle.x_raw_dbm,
+
+    )
+
+    train_idx = subsample_train_indices(
+
+        train_idx,
+
+        fraction=float(split_cfg.get("train_fraction", 1.0)),
+
+        seed=split_seed + 20000,
+
+    )
+
+    y = rng.uniform(bundle.y[train_idx].min(axis=0), bundle.y[train_idx].max(axis=0), size=(n, 2)).astype(np.float32)
+
+    cond_mean = np.asarray(checkpoint["condition_mean"], dtype=np.float32)
+
+    cond_std = np.asarray(checkpoint["condition_std"], dtype=np.float32)
+
+    if "spectrum_mean" not in checkpoint or "spectrum_std" not in checkpoint:
+
+        raise ValueError("checkpoint lacks train-split spectrum normalization statistics")
+
+    spectrum_mean = torch.as_tensor(checkpoint["spectrum_mean"], device=device, dtype=torch.float32)
+
+    spectrum_std = torch.as_tensor(checkpoint["spectrum_std"], device=device, dtype=torch.float32)
+
+    generated = []
+
+    with torch.no_grad():
+
+        for start in range(0, n, batch_size):
+
+            raw = y[start:start + batch_size]
+
+            cond = torch.from_numpy((raw - cond_mean) / cond_std).to(device)
+
+            z = torch.randn(len(raw), latent_dim, device=device)
+
+            generated_normalized = generator(z, cond)
+
+            generated_representation = generated_normalized * spectrum_std + spectrum_mean
+
+            generated.append(generated_representation.squeeze(1).cpu().numpy().astype(np.float32))
+
+    output = Path(output_path)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    np.savez_compressed(output, x_spectrum=np.concatenate(generated), y=y, seed=seed)
+
+    print(f"saved {n} generated resampled spectra to {output}")
 
 
 def moment_matching_loss(fake, real):

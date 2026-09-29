@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from utils import load_config
+from data import load_config
 
 
 def run(command: list[str]) -> None:
@@ -38,7 +38,7 @@ def main() -> None:
     if not args.skip_gan:
         run([sys.executable, str(ROOT / "train_gan.py"), "--config", config])
         run([
-            sys.executable, str(ROOT / "generate_gan_synthetic.py"),
+            sys.executable, str(ROOT / "train_gan.py"), "--generate-only",
             "--config", config,
             "--checkpoint", str(gan_dir / "gan_final.pt"),
             "--output", str(gan_dir / "gan_synthetic.npz"),

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from dataset import TorchRegressionDataset, load_spectrum_bundle
+from data import TorchRegressionDataset, load_spectrum_bundle
 
 from physics import (
 
@@ -20,8 +20,8 @@ from physics import (
 
 )
 
-from pcst import select_cmi_pcqd
-from synthetic_quality import (
+from physics import select_cmi_pcqd
+from physics import (
     real_manifold_distances,
     synthetic_acceptance_mask,
     synthetic_quality_report,
@@ -29,15 +29,15 @@ from synthetic_quality import (
 
 from physics import fit_forward_trough_calibrator, predict_forward_troughs
 
-from heterogeneous_moe import HeterogeneousMoE
+from moe import HeterogeneousMoE
 
-from utils import load_config
+from data import load_config
 
-from utils import ensure_dir, write_json
+from data import ensure_dir, write_json
 
-from utils import set_seed
+from data import set_seed
 
-from utils import (
+from data import (
 
     resolve_split_seed,
 
