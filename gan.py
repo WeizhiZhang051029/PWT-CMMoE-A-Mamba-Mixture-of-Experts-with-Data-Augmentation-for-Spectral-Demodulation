@@ -16,7 +16,7 @@ except ImportError:
     nn = None
 
 
-from spectral_moe.models.cnn_blocks import ConvBNAct, require_torch
+from cnn_blocks import ConvBNAct, require_torch
 
 
 if nn is not None:

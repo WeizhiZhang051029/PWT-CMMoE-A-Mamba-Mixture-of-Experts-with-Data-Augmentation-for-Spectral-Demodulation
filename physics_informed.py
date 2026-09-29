@@ -5,7 +5,7 @@ try:
 except ImportError:
     torch = None
 
-from spectral_moe.models.cnn_blocks import require_torch
+from cnn_blocks import require_torch
 
 
 def smoothness_loss(reconstructed):

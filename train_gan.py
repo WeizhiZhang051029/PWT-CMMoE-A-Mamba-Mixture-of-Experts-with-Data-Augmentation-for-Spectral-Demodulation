@@ -11,9 +11,9 @@ from pathlib import Path
 import numpy as np
 
 
-from spectral_moe.data.dataset import TorchSpectrumDataset, load_spectrum_bundle
+from dataset import TorchSpectrumDataset, load_spectrum_bundle
 
-from spectral_moe.models.antiresonance_pinn import (
+from antiresonance_pinn import (
 
     AntiResonanceConfig,
 
@@ -27,7 +27,7 @@ from spectral_moe.models.antiresonance_pinn import (
 
 )
 
-from spectral_moe.models.gan import (
+from gan import (
 
     ConditionalCritic,
 
@@ -37,17 +37,17 @@ from spectral_moe.models.gan import (
 
 )
 
-from spectral_moe.models.physics_informed import smoothness_loss
+from physics_informed import smoothness_loss
 
-from spectral_moe.train.physics_consistency import design_matrix
+from physics_consistency import design_matrix
 
-from spectral_moe.utils.config import load_config
+from config import load_config
 
-from spectral_moe.utils.io import ensure_dir, write_json
+from io_utils import ensure_dir, write_json
 
-from spectral_moe.utils.seed import set_seed
+from seed import set_seed
 
-from spectral_moe.utils.splits import (
+from splits import (
     resolve_split_seed,
     split_from_config,
     subsample_train_indices,

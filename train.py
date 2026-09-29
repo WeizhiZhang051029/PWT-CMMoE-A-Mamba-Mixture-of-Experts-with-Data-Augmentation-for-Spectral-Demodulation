@@ -5,11 +5,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from spectral_moe.utils.config import load_config
+from config import load_config
 
 
 def run(command: list[str]) -> None:
@@ -36,20 +36,20 @@ def main() -> None:
     adapter_dir = str((ROOT / args.adapter_dir).resolve())
 
     if not args.skip_gan:
-        run([sys.executable, "-m", "spectral_moe.train.train_gan", "--config", config])
+        run([sys.executable, str(ROOT / "train_gan.py"), "--config", config])
         run([
-            sys.executable, "-m", "spectral_moe.train.generate_gan_synthetic",
+            sys.executable, str(ROOT / "generate_gan_synthetic.py"),
             "--config", config,
             "--checkpoint", str(gan_dir / "gan_final.pt"),
             "--output", str(gan_dir / "gan_synthetic.npz"),
         ])
     if not args.skip_pretrain:
         run([
-            sys.executable, "-m", "spectral_moe.train.pretrain_moe",
+            sys.executable, str(ROOT / "pretrain_moe.py"),
             "--config", config, "--output-dir", pretrain_dir,
         ])
     run([
-        sys.executable, "-m", "spectral_moe.train.finetune_adapter",
+        sys.executable, str(ROOT / "finetune_adapter.py"),
         "--config", config, "--pretrain-dir", pretrain_dir,
         "--output-dir", adapter_dir,
     ])

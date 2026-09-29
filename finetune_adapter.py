@@ -6,20 +6,20 @@ import argparse
 from pathlib import Path
 
 import numpy as np
-from spectral_moe.data.dataset import TorchRegressionDataset, load_spectrum_bundle
-from spectral_moe.data.physical_features import apply_feature_standardizer, extract_physics_features
-from spectral_moe.models.heterogeneous_moe import (
+from dataset import TorchRegressionDataset, load_spectrum_bundle
+from physical_features import apply_feature_standardizer, extract_physics_features
+from heterogeneous_moe import (
     HeterogeneousMoE,
 )
-from spectral_moe.models.adapter import (
+from adapter import (
     apply_adapter_to_model,
     count_parameters,
     freeze_non_adapter,
 )
-from spectral_moe.utils.config import load_config
-from spectral_moe.utils.io import ensure_dir, write_json
-from spectral_moe.utils.seed import set_seed
-from spectral_moe.utils.splits import resolve_split_seed, split_from_config, subsample_train_indices
+from config import load_config
+from io_utils import ensure_dir, write_json
+from seed import set_seed
+from splits import resolve_split_seed, split_from_config, subsample_train_indices
 
 
 def _load_pretrained_moe(

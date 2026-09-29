@@ -11,15 +11,15 @@ from pathlib import Path
 import numpy as np
 
 
-from spectral_moe.data.dataset import load_spectrum_bundle
+from dataset import load_spectrum_bundle
 
-from spectral_moe.models.gan import ConditionalGenerator
+from gan import ConditionalGenerator
 
-from spectral_moe.utils.config import load_config
+from config import load_config
 
-from spectral_moe.utils.seed import set_seed
+from seed import set_seed
 
-from spectral_moe.utils.splits import (
+from splits import (
     resolve_split_seed,
     split_from_config,
     subsample_train_indices,

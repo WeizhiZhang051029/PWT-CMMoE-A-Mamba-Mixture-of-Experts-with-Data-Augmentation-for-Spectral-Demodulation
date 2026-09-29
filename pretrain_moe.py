@@ -8,9 +8,9 @@ from pathlib import Path
 
 import numpy as np
 
-from spectral_moe.data.dataset import TorchRegressionDataset, load_spectrum_bundle
+from dataset import TorchRegressionDataset, load_spectrum_bundle
 
-from spectral_moe.data.physical_features import (
+from physical_features import (
 
     apply_feature_standardizer,
 
@@ -20,24 +20,24 @@ from spectral_moe.data.physical_features import (
 
 )
 
-from spectral_moe.train.pcst import select_cmi_pcqd
-from spectral_moe.train.synthetic_quality import (
+from pcst import select_cmi_pcqd
+from synthetic_quality import (
     real_manifold_distances,
     synthetic_acceptance_mask,
     synthetic_quality_report,
 )
 
-from spectral_moe.train.physics_consistency import fit_forward_trough_calibrator, predict_forward_troughs
+from physics_consistency import fit_forward_trough_calibrator, predict_forward_troughs
 
-from spectral_moe.models.heterogeneous_moe import HeterogeneousMoE
+from heterogeneous_moe import HeterogeneousMoE
 
-from spectral_moe.utils.config import load_config
+from config import load_config
 
-from spectral_moe.utils.io import ensure_dir, write_json
+from io_utils import ensure_dir, write_json
 
-from spectral_moe.utils.seed import set_seed
+from seed import set_seed
 
-from spectral_moe.utils.splits import (
+from splits import (
 
     resolve_split_seed,
 

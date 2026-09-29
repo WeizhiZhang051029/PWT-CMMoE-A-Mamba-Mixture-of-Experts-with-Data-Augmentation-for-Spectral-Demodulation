@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_MATRIX = PROJECT_ROOT / "data" / "spectra.npz"
 DEFAULT_LABELS = PROJECT_ROOT / "data" / "labels.csv"
 
