@@ -237,8 +237,6 @@ The outputs include:
 * normalization statistics and training summaries;
 * CATB task-weight and gradient-conflict history.
 
-Generated checkpoints, synthetic spectra, and intermediate training files are excluded from version control by default.
-
 ## 📏 Evaluation Metrics
 
 Temperature and salinity demodulation performance is evaluated using three standard regression metrics:
