@@ -376,6 +376,7 @@ if nn is not None:
             super().__init__()
             self.spectrum_dim = spectrum_dim
             self.phys_dim = phys_dim
+            self.expert_out_dim = expert_out_dim
             self.trough_indices = list(trough_indices or [])
 
 
@@ -526,28 +527,31 @@ if nn is not None:
 
             route_weights, route_logits = self.router(h_shared)
             expert_outputs = []
-            if "mlp" in self.active_expert_types:
-                expert_outputs.append(self.expert_mlp(h_shared))
-            if "cnn" in self.active_expert_types:
-                expert_outputs.append(
-                    self.expert_cnn(
-                        raw_spectrum,
-                        spectrum_features.shape[0],
-                        spectrum_features.device,
-                        spectrum_features.dtype,
-                    )
-                )
-            if "physics" in self.active_expert_types:
-                expert_outputs.append(self.expert_phys(spectrum_features, f_phys))
-            if "mamba" in self.active_expert_types:
-                expert_outputs.append(
-                    self.expert_mamba(
-                        raw_spectrum,
-                        spectrum_features.shape[0],
-                        spectrum_features.device,
-                        spectrum_features.dtype,
-                    )
-                )
+            batch_size = spectrum_features.shape[0]
+            for expert_index, expert_type in enumerate(self.active_expert_types):
+                active = route_weights[:, expert_index] > 0
+                output = h_shared.new_zeros(batch_size, self.expert_out_dim)
+                if active.any():
+                    if expert_type == "mlp":
+                        selected = self.expert_mlp(h_shared[active])
+                    elif expert_type == "cnn":
+                        selected = self.expert_cnn(
+                            raw_spectrum[active] if raw_spectrum is not None else None,
+                            int(active.sum().item()),
+                            spectrum_features.device,
+                            spectrum_features.dtype,
+                        )
+                    elif expert_type == "physics":
+                        selected = self.expert_phys(spectrum_features[active], f_phys[active])
+                    else:
+                        selected = self.expert_mamba(
+                            raw_spectrum[active] if raw_spectrum is not None else None,
+                            int(active.sum().item()),
+                            spectrum_features.device,
+                            spectrum_features.dtype,
+                        )
+                    output[active] = selected
+                expert_outputs.append(output)
             stacked = torch.stack(expert_outputs, dim=1)
             mixed = torch.sum(stacked * route_weights.unsqueeze(-1), dim=1)
 

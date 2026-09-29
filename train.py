@@ -686,6 +686,31 @@ def load_balance_loss_fn(route_weights: "torch.Tensor") -> "torch.Tensor":
     return torch.sum(expert_frac * torch.softmax(expert_frac, dim=0)) * n_experts
 
 
+def build_moe_model(
+    spectrum_dim: int,
+    phys_dim: int,
+    trough_indices: list[int],
+    moe_cfg: dict,
+    device: "torch.device",
+) -> "HeterogeneousMoE":
+
+    model = HeterogeneousMoE(
+        spectrum_dim=spectrum_dim,
+        phys_dim=phys_dim,
+        expert_out_dim=int(moe_cfg.get("expert_out_dim", 64)),
+        hidden_dim=int(moe_cfg.get("hidden_dim", 128)),
+        top_k=int(moe_cfg.get("top_k", 2)),
+        trough_indices=trough_indices,
+        dropout=float(moe_cfg.get("dropout", 0.1)),
+        head_hidden_dim=int(moe_cfg.get("head_hidden_dim", 64)),
+        condition_film_cfg=moe_cfg.get("condition_film", None),
+        physics_heads_cfg=moe_cfg.get("physics_heads", None),
+        expert_types=moe_cfg.get("expert_types", None),
+        mamba_cfg=moe_cfg.get("mamba", None),
+    )
+    return model.to(device)
+
+
 def pretrain_moe(
 
     spectrum_all_norm: np.ndarray,
@@ -736,35 +761,13 @@ def pretrain_moe(
     )
 
 
-    model = HeterogeneousMoE(
-
+    model = build_moe_model(
         spectrum_dim=spectrum_all_norm.shape[1],
-
         phys_dim=phys_all.shape[1],
-
-        expert_out_dim=int(moe_cfg.get("expert_out_dim", 64)),
-
-        hidden_dim=int(moe_cfg.get("hidden_dim", 128)),
-
-        top_k=int(moe_cfg.get("top_k", 2)),
-
         trough_indices=trough_indices,
-
-        dropout=float(moe_cfg.get("dropout", 0.1)),
-
-        head_hidden_dim=int(moe_cfg.get("head_hidden_dim", 64)),
-
-
-        condition_film_cfg=moe_cfg.get("condition_film", None),
-
-        physics_heads_cfg=moe_cfg.get("physics_heads", None),
-
-        expert_types=moe_cfg.get("expert_types", None),
-
-
-        mamba_cfg=moe_cfg.get("mamba", None),
-
-    ).to(device)
+        moe_cfg=moe_cfg,
+        device=device,
+    )
 
 
     temp_w = float(pretrain_cfg.get("temperature_weight", 1.5))
@@ -1430,20 +1433,13 @@ def _load_pretrained_moe(
     spectrum_dim = int(ckpt["spectrum_dim"])
     phys_dim = in_dim - spectrum_dim
 
-    model = HeterogeneousMoE(
+    model = build_moe_model(
         spectrum_dim=spectrum_dim,
         phys_dim=phys_dim,
-        expert_out_dim=int(moe_cfg.get("expert_out_dim", 64)),
-        hidden_dim=int(moe_cfg.get("hidden_dim", 128)),
-        top_k=int(moe_cfg.get("top_k", 2)),
         trough_indices=trough_indices,
-        dropout=float(moe_cfg.get("dropout", 0.1)),
-        head_hidden_dim=int(moe_cfg.get("head_hidden_dim", 64)),
-        condition_film_cfg=moe_cfg.get("condition_film", None),
-        physics_heads_cfg=moe_cfg.get("physics_heads", None),
-        expert_types=moe_cfg.get("expert_types", None),
-        mamba_cfg=moe_cfg.get("mamba", None),
-    ).to(device)
+        moe_cfg=moe_cfg,
+        device=device,
+    )
     current_sd = model.state_dict()
     compatible = {k: v for k, v in state.items()
                   if k in current_sd and current_sd[k].shape == v.shape}
