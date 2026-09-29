@@ -13,12 +13,3 @@ def load_config(path: str | Path) -> dict[str, Any]:
     data["_config_path"] = str(config_path.resolve())
     data["_config_dir"] = str(config_path.resolve().parent)
     return data
-
-
-def get_nested(config: dict[str, Any], dotted_key: str, default: Any = None) -> Any:
-    current: Any = config
-    for part in dotted_key.split("."):
-        if not isinstance(current, dict) or part not in current:
-            return default
-        current = current[part]
-    return current

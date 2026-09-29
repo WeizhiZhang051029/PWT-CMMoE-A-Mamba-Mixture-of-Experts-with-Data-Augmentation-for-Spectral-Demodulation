@@ -201,8 +201,6 @@ class TorchSpectrumDataset:
         self,
         x: np.ndarray,
         y: np.ndarray | None = None,
-        physics: np.ndarray | None = None,
-        prior_prediction: np.ndarray | None = None,
     ):
         try:
             import torch
@@ -212,10 +210,6 @@ class TorchSpectrumDataset:
         self.torch = torch
         self.x = torch.from_numpy(x.astype(np.float32))
         self.y = None if y is None else torch.from_numpy(y.astype(np.float32))
-        self.physics = None if physics is None else torch.from_numpy(physics.astype(np.float32))
-        self.prior_prediction = (
-            None if prior_prediction is None else torch.from_numpy(prior_prediction.astype(np.float32))
-        )
 
     def __len__(self) -> int:
         return int(self.x.shape[0])
@@ -227,8 +221,40 @@ class TorchSpectrumDataset:
         item = {"x": x}
         if self.y is not None:
             item["y"] = self.y[index]
-        if self.physics is not None:
-            item["physics"] = self.physics[index]
-        if self.prior_prediction is not None:
-            item["prior_prediction"] = self.prior_prediction[index]
+        return item
+
+
+class TorchRegressionDataset:
+    """Tensor dataset shared by MoE pretraining and adapter fine-tuning."""
+
+    def __init__(
+        self,
+        spectrum_features: np.ndarray,
+        physics: np.ndarray,
+        y: np.ndarray | None = None,
+        sample_weight: np.ndarray | None = None,
+        raw_spectrum: np.ndarray | None = None,
+    ) -> None:
+        try:
+            import torch
+        except ImportError as exc:
+            raise ImportError("TorchRegressionDataset requires PyTorch") from exc
+
+        self.z = torch.from_numpy(spectrum_features.astype(np.float32))
+        self.phy = torch.from_numpy(physics.astype(np.float32))
+        self.y = None if y is None else torch.from_numpy(y.astype(np.float32))
+        self.sample_weight = None if sample_weight is None else torch.from_numpy(sample_weight.astype(np.float32))
+        self.raw = None if raw_spectrum is None else torch.from_numpy(raw_spectrum.astype(np.float32))
+
+    def __len__(self) -> int:
+        return int(self.z.shape[0])
+
+    def __getitem__(self, index: int) -> dict:
+        item = {"z": self.z[index], "physics": self.phy[index]}
+        if self.y is not None:
+            item["y"] = self.y[index]
+        if self.sample_weight is not None:
+            item["sample_weight"] = self.sample_weight[index]
+        if self.raw is not None:
+            item["raw"] = self.raw[index]
         return item

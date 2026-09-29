@@ -35,10 +35,6 @@ from spectral_moe.models.gan import (
 
     gradient_penalty,
 
-    r3gan_critic_loss,
-
-    r3gan_generator_loss,
-
 )
 
 from spectral_moe.models.physics_informed import smoothness_loss
@@ -51,7 +47,11 @@ from spectral_moe.utils.io import ensure_dir, write_json
 
 from spectral_moe.utils.seed import set_seed
 
-from spectral_moe.utils.splits import resolve_split_seed, split_audit, split_from_config
+from spectral_moe.utils.splits import (
+    resolve_split_seed,
+    split_from_config,
+    subsample_train_indices,
+)
 
 
 def main() -> None:
@@ -69,7 +69,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--config", default="configs/config.yaml")
 
     parser.add_argument("--force", action="store_true")
 
@@ -99,7 +99,7 @@ def main() -> None:
 
     split_seed = resolve_split_seed(split_cfg, seed)
 
-    train_idx, val_idx, test_idx, split_meta = split_from_config(
+    train_idx, _, split_meta = split_from_config(
 
         len(bundle.y),
 
@@ -114,10 +114,11 @@ def main() -> None:
     )
 
     split_meta["seed"] = split_seed
-
-    audit = split_audit(bundle.labels, train_idx, val_idx, test_idx, x_raw_dbm=bundle.x_raw_dbm)
-
-    write_json(Path(output_dir) / "split_audit.json", {"split": split_meta, "audit": audit})
+    train_fraction = float(split_cfg.get("train_fraction", 1.0))
+    train_idx = subsample_train_indices(
+        train_idx, fraction=train_fraction, seed=split_seed + 20000
+    )
+    split_meta["train_fraction"] = train_fraction
 
 
     condition = bundle.y[train_idx].astype(np.float32)
@@ -173,12 +174,6 @@ def main() -> None:
     smooth_weight = float(gan_cfg.get("smoothness_weight", 0.001))
 
     moment_weight = float(gan_cfg.get("moment_weight", 0.0))
-
-    variant = str(gan_cfg.get("variant", "wgan_gp")).lower()
-
-    if variant not in {"wgan_gp", "r3gan"}:
-
-        raise ValueError("gan.variant must be 'wgan_gp' or 'r3gan'")
 
 
     pinn_cfg = gan_cfg.get("pinn", {})
@@ -358,23 +353,9 @@ def main() -> None:
 
                 fake = generator(z, cond).detach()
 
-                if variant == "wgan_gp":
+                c_loss = critic(fake, cond).mean() - critic(real, cond).mean()
 
-                    c_loss = critic(fake, cond).mean() - critic(real, cond).mean()
-
-                    c_loss = c_loss + gp_weight * gradient_penalty(critic, real, fake, cond)
-
-                else:
-
-                    c_loss = r3gan_critic_loss(
-
-                        critic, real, fake, cond,
-
-                        r1_weight=float(gan_cfg.get("r1_weight", 1.0)),
-
-                        r2_weight=float(gan_cfg.get("r2_weight", 1.0)),
-
-                    )
+                c_loss = c_loss + gp_weight * gradient_penalty(critic, real, fake, cond)
 
                 c_opt.zero_grad()
 
@@ -386,13 +367,7 @@ def main() -> None:
 
             fake = generator(z, cond)
 
-            if variant == "wgan_gp":
-
-                g_loss = -critic(fake, cond).mean()
-
-            else:
-
-                g_loss = r3gan_generator_loss(critic, real, fake, cond)
+            g_loss = -critic(fake, cond).mean()
 
             fake_raw_for_regularizers = fake * spectrum_std_t + spectrum_mean_t
 
@@ -449,7 +424,7 @@ def main() -> None:
 
             g_losses.append(float(g_loss.detach().cpu()))
 
-        print(f"epoch={epoch} variant={variant} critic={np.mean(c_losses):.6f} generator={np.mean(g_losses):.6f}")
+        print(f"epoch={epoch} critic={np.mean(c_losses):.6f} generator={np.mean(g_losses):.6f}")
 
         if epoch % 50 == 0:
 
@@ -459,7 +434,7 @@ def main() -> None:
 
                                     split_meta, condition_mean, condition_std, spectrum_mean, spectrum_std,
 
-                                    representation, variant),
+                                    representation),
 
                 Path(output_dir) / f"gan_epoch_{epoch}.pt",
 
@@ -471,7 +446,7 @@ def main() -> None:
 
                             split_meta, condition_mean, condition_std, spectrum_mean, spectrum_std,
 
-                            representation, variant),
+                            representation),
 
         Path(output_dir) / "gan_final.pt",
 
@@ -499,7 +474,7 @@ def _checkpoint_payload(generator, critic, physics, soft_coefficients, config, s
 
                         condition_mean, condition_std, spectrum_mean, spectrum_std,
 
-                        representation, variant):
+                        representation):
 
     return {
 
@@ -525,7 +500,6 @@ def _checkpoint_payload(generator, critic, physics, soft_coefficients, config, s
 
         "representation": representation,
 
-        "gan_variant": variant,
 
     }
 

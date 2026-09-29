@@ -19,7 +19,11 @@ from spectral_moe.utils.config import load_config
 
 from spectral_moe.utils.seed import set_seed
 
-from spectral_moe.utils.splits import resolve_split_seed, split_from_config
+from spectral_moe.utils.splits import (
+    resolve_split_seed,
+    split_from_config,
+    subsample_train_indices,
+)
 
 
 def main() -> None:
@@ -79,12 +83,17 @@ def main() -> None:
 
     split_cfg = config.get("data", {}).get("split", {})
 
-    train_idx, _, _, _ = split_from_config(
+    train_idx, _ = split_from_config(
 
         len(bundle.y), seed=resolve_split_seed(split_cfg, seed), split_cfg=split_cfg,
 
         labels=bundle.labels, x_raw_dbm=bundle.x_raw_dbm,
 
+    )
+    train_idx = subsample_train_indices(
+        train_idx,
+        fraction=float(split_cfg.get("train_fraction", 1.0)),
+        seed=resolve_split_seed(split_cfg, seed) + 20000,
     )
 
     train_min = bundle.y[train_idx].min(axis=0)
@@ -135,9 +144,7 @@ def main() -> None:
 
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    np.savez_compressed(out, x_spectrum=np.concatenate(x_parts), y=y,
-
-                        gan_variant=checkpoint.get("gan_variant", "unknown"), seed=seed)
+    np.savez_compressed(out, x_spectrum=np.concatenate(x_parts), y=y, seed=seed)
 
     print(f"saved {n} generated resampled spectra to {out}")
 

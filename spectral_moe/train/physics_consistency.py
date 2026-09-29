@@ -31,29 +31,6 @@ def tracked_trough_metadata(feature_names: list[str]) -> tuple[list[int], np.nda
     return indices, np.asarray(centers, dtype=np.float64)
 
 
-def trough_reliability(
-    wavelengths_nm: np.ndarray,
-    centers_nm: np.ndarray,
-    half_window_nm: float,
-    edge_margin_nm: float,
-    minimum_weight: float = 0.05,
-) -> np.ndarray:
-
-    wavelengths = np.asarray(wavelengths_nm, dtype=np.float64)
-    centers = np.asarray(centers_nm, dtype=np.float64)
-    if wavelengths.ndim != 2:
-        raise ValueError("wavelengths_nm must have shape [n_samples, n_troughs]")
-    if centers.shape != (wavelengths.shape[1],):
-        raise ValueError("centers_nm must match the trough-feature dimension")
-    if half_window_nm <= 0 or edge_margin_nm <= 0:
-        raise ValueError("half_window_nm and edge_margin_nm must be positive")
-    if not 0.0 <= minimum_weight <= 1.0:
-        raise ValueError("minimum_weight must be in [0, 1]")
-    distance_to_edge = half_window_nm - np.abs(wavelengths - centers[None, :])
-    confidence = np.clip(distance_to_edge / edge_margin_nm, 0.0, 1.0)
-    return (minimum_weight + (1.0 - minimum_weight) * confidence).astype(np.float32)
-
-
 def fit_forward_trough_calibrator(labels, physics, feature_names, ridge_alpha=1e-3, sample_weight=None):
 
     indices, centers = tracked_trough_metadata(feature_names)
@@ -88,20 +65,3 @@ def fit_forward_trough_calibrator(labels, physics, feature_names, ridge_alpha=1e
 
 def predict_forward_troughs(labels, coefficients):
     return design_matrix(labels) @ np.asarray(coefficients, dtype=np.float64).T
-
-
-def fit_forward_feature_calibrator(labels, features, ridge_alpha=1e-3):
-
-    x = design_matrix(labels)
-    y = np.asarray(features, dtype=np.float64)
-    if y.ndim != 2 or y.shape[0] != x.shape[0]:
-        raise ValueError("features must have shape [n_samples, n_features]")
-    penalty = ridge_alpha * np.eye(x.shape[1]); penalty[0, 0] = 0.0
-    coef, residuals, scores = [], [], []
-    for col in range(y.shape[1]):
-        current = np.linalg.solve(x.T @ x + penalty, x.T @ y[:, col])
-        residual = y[:, col] - x @ current
-        total = np.sum((y[:, col] - y[:, col].mean()) ** 2)
-        coef.append(current); residuals.append(residual)
-        scores.append(1.0 - np.sum(residual ** 2) / total if total > 1e-12 else 0.0)
-    return {"coefficients": np.asarray(coef, dtype=np.float32), "scale": np.maximum(np.column_stack(residuals).std(axis=0), 1e-6).astype(np.float32), "r2": np.asarray(scores, dtype=np.float32)}

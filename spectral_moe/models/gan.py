@@ -83,29 +83,6 @@ if nn is not None:
             return self.refine(x)
 
 
-    class ConditionalVectorGenerator(nn.Module):
-
-
-        def __init__(self, latent_dim: int, condition_dim: int, output_dim: int, hidden_dim: int = 256):
-
-            super().__init__()
-
-            self.net = nn.Sequential(
-
-                nn.Linear(latent_dim + condition_dim, hidden_dim), nn.GELU(),
-
-                nn.LayerNorm(hidden_dim), nn.Linear(hidden_dim, hidden_dim), nn.GELU(),
-
-                nn.Linear(hidden_dim, output_dim),
-
-            )
-
-
-        def forward(self, z, condition):
-
-            return self.net(torch.cat([z, condition], dim=-1))
-
-
     class ConditionalCritic(nn.Module):
 
         def __init__(self, condition_dim: int, input_length: int, base_channels: int = 32):
@@ -142,29 +119,6 @@ if nn is not None:
             return self.head(torch.cat([features, condition], dim=-1))
 
 
-    class ConditionalVectorCritic(nn.Module):
-
-
-        def __init__(self, condition_dim: int, input_dim: int, hidden_dim: int = 256):
-
-            super().__init__()
-
-            self.net = nn.Sequential(
-
-                nn.Linear(input_dim + condition_dim, hidden_dim), nn.LeakyReLU(0.2, inplace=True),
-
-                nn.Linear(hidden_dim, hidden_dim), nn.LeakyReLU(0.2, inplace=True),
-
-                nn.Linear(hidden_dim, 1),
-
-            )
-
-
-        def forward(self, spectrum, condition):
-
-            return self.net(torch.cat([spectrum, condition], dim=-1))
-
-
     def gradient_penalty(critic, real, fake, condition):
 
         batch = real.shape[0]
@@ -196,70 +150,10 @@ if nn is not None:
         return ((grad.flatten(1).norm(2, dim=1) - 1.0) ** 2).mean()
 
 
-    def zero_centered_gradient_penalty(critic, samples, condition):
-
-        samples = samples.requires_grad_(True)
-
-        score = critic(samples, condition)
-
-        grad = torch.autograd.grad(
-
-            outputs=score,
-
-            inputs=samples,
-
-            grad_outputs=torch.ones_like(score),
-
-            create_graph=True,
-
-            retain_graph=True,
-
-            only_inputs=True,
-
-        )[0]
-
-        return grad.flatten(1).square().sum(dim=1).mean()
-
-
-    def r3gan_critic_loss(critic, real, fake, condition, r1_weight=0.0, r2_weight=0.0):
-
-        real_score = critic(real, condition)
-
-        fake_score = critic(fake, condition)
-
-        loss = torch.nn.functional.softplus(-(real_score - fake_score)).mean()
-
-        if r1_weight > 0:
-
-            loss = loss + 0.5 * r1_weight * zero_centered_gradient_penalty(critic, real, condition)
-
-        if r2_weight > 0:
-
-            loss = loss + 0.5 * r2_weight * zero_centered_gradient_penalty(critic, fake, condition)
-
-        return loss
-
-
-    def r3gan_generator_loss(critic, real, fake, condition):
-
-        real_score = critic(real, condition).detach()
-
-        fake_score = critic(fake, condition)
-
-        return torch.nn.functional.softplus(real_score - fake_score).mean()
-
-
 else:
 
 
     class ConditionalGenerator:
-
-        def __init__(self, *args, **kwargs):
-
-            require_torch()
-
-
-    class ConditionalVectorGenerator:
 
         def __init__(self, *args, **kwargs):
 
@@ -273,28 +167,9 @@ else:
             require_torch()
 
 
-    class ConditionalVectorCritic:
-
-        def __init__(self, *args, **kwargs):
-
-            require_torch()
-
-
     def gradient_penalty(*args, **kwargs):
 
         require_torch()
 
 
-    def zero_centered_gradient_penalty(*args, **kwargs):
-
-        require_torch()
-
-
-    def r3gan_critic_loss(*args, **kwargs):
-
-        require_torch()
-
-
-    def r3gan_generator_loss(*args, **kwargs):
-
-        require_torch()
+    pass

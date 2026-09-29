@@ -1,7 +1,4 @@
 seed: 1
-experiment:
-  # The manuscript reports mean +/- standard deviation over ten independent seeds.
-  repeat_seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 data:
   npz_path: data/spectra.npz
   labels_path: data/labels.csv
@@ -17,8 +14,9 @@ data:
   split:
     method: random
     val_fraction: 0.2
-    test_fraction: 0.2
-    train_fraction: 1.0
+    # The paper uses a 6:2:2 split. The release materializes only the 6:2
+    # training/validation partitions; the remaining 20% is kept unused.
+    train_fraction: 0.75
 features:
   num_dips: 6
   num_bands: 8
@@ -38,8 +36,6 @@ heterogeneous_moe:
   top_k: 2
   dropout: 0.15
   head_hidden_dim: 64
-  # Both tasks must contribute gradients to the shared experts/router for CATB.
-  decouple_temperature: false
   condition_film:
     enabled: true
     condition_source: physics
@@ -66,10 +62,6 @@ pretrain:
     manifold_percentile: 95.0
     target_accepted_samples: 2000
     min_accepted_samples: 2000
-    hard_reject_trough_multiplier: 2.0
-    min_accept_fraction: 0.05
-    confidence_weighting: true
-    confidence_floor: 0.1
     cmi_pcqd_selector:
       enabled: true
       soft_trough_mae_nm: 8.0
@@ -88,8 +80,6 @@ pretrain:
       confidence_clip:
       - 0.25
       - 2.0
-    physics_quality_diversity_selector:
-      enabled: false
   epochs: 150
   batch_size: 32
   learning_rate: 0.0003
@@ -99,7 +89,6 @@ pretrain:
   load_balance_weight: 0.005
   # PCST confidence is normalized to mean one and used directly in pretraining.
   synthetic_weight: 1.0
-  decouple_temperature_pretrain: false
   synthetic_only: true
 adapter:
   enabled: true
@@ -129,9 +118,6 @@ adapter_finetune:
   trainable_name_filters:
   - temperature_head
   - salinity_head
-  ssl_consistency_weight: 0.08
-  ssl_noise_std: 0.05
-  ssl_warmup_epochs: 30
   use_adaptive_mtl: true
   use_pcgrad: true
   mtl_alpha: 1.0
@@ -140,7 +126,6 @@ adapter_finetune:
   mtl_ema_span: 10
 gan:
   enabled: true
-  variant: wgan_gp
   output_dir: outputs/gan
   epochs: 300
   batch_size: 16
@@ -148,10 +133,6 @@ gan:
   learning_rate: 0.0001
   critic_steps: 3
   gradient_penalty_weight: 20.0
-  critic_l2_penalty: 0.001
-  critic_grad_clip: 5.0
-  generator_grad_clip: 5.0
-  divergence_warn_threshold: 10000.0
   n_synthetic: 5000
   sample_batch_size: 64
   smoothness_weight: 0.001

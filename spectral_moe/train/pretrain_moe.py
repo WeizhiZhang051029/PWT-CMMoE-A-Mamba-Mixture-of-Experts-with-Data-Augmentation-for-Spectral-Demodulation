@@ -3,17 +3,12 @@ from __future__ import annotations
 
 import argparse
 
-import json
-
 from pathlib import Path
 
 
 import numpy as np
 
-import pandas as pd
-
-
-from spectral_moe.data.dataset import load_spectrum_bundle
+from spectral_moe.data.dataset import TorchRegressionDataset, load_spectrum_bundle
 
 from spectral_moe.data.physical_features import (
 
@@ -25,10 +20,8 @@ from spectral_moe.data.physical_features import (
 
 )
 
-from spectral_moe.evaluate.metrics import regression_metrics
-
-from spectral_moe.evaluate.conditional_synthetic_quality import select_cmi_pcqd
-from spectral_moe.evaluate.synthetic_quality import (
+from spectral_moe.train.pcst import select_cmi_pcqd
+from spectral_moe.train.synthetic_quality import (
     real_manifold_distances,
     synthetic_acceptance_mask,
     synthetic_quality_report,
@@ -56,12 +49,8 @@ from spectral_moe.utils.splits import (
 
 
 def standardize_labels(
-
     y_train: np.ndarray,
-
-    *others: np.ndarray,
-
-) -> tuple[np.ndarray, ...]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
     mean = y_train.mean(axis=0, keepdims=True)
 
@@ -69,18 +58,14 @@ def standardize_labels(
 
     std[std < 1e-8] = 1.0
 
-    scaled = tuple(((a - mean) / std).astype(np.float32) for a in (y_train, *others))
+    scaled = ((y_train - mean) / std).astype(np.float32)
 
-    return (*scaled, mean.astype(np.float32), std.astype(np.float32))
+    return scaled, mean.astype(np.float32), std.astype(np.float32)
 
 
 def standardize_spectrum(
-
     spectrum_train: np.ndarray,
-
-    *others: np.ndarray,
-
-) -> tuple[tuple[np.ndarray, ...], np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
     mean = spectrum_train.mean(axis=0, keepdims=True)
 
@@ -88,7 +73,7 @@ def standardize_spectrum(
 
     std[std < 1e-8] = 1.0
 
-    scaled = tuple(((a - mean) / std).astype(np.float32) for a in (spectrum_train, *others))
+    scaled = ((spectrum_train - mean) / std).astype(np.float32)
 
     return scaled, mean.astype(np.float32), std.astype(np.float32)
 
@@ -102,70 +87,6 @@ def load_balance_loss_fn(route_weights: "torch.Tensor") -> "torch.Tensor":
     expert_frac = route_weights.mean(dim=0)
 
     return torch.sum(expert_frac * torch.softmax(expert_frac, dim=0)) * n_experts
-
-
-class SpectralDataset:
-
-
-    def __init__(
-
-        self,
-
-        spectrum_features: np.ndarray,
-
-        physics: np.ndarray,
-
-        y: np.ndarray | None = None,
-
-        sample_weight: np.ndarray | None = None,
-
-        raw_spectrum: np.ndarray | None = None,
-
-    ) -> None:
-
-        import torch
-
-        self.z = torch.from_numpy(spectrum_features.astype(np.float32))
-
-        self.phy = torch.from_numpy(physics.astype(np.float32))
-
-        self.y = None if y is None else torch.from_numpy(y.astype(np.float32))
-
-        self.sample_weight = (
-
-            None if sample_weight is None else torch.from_numpy(sample_weight.astype(np.float32))
-
-        )
-
-        self.raw = (
-
-            None if raw_spectrum is None else torch.from_numpy(raw_spectrum.astype(np.float32))
-
-        )
-
-
-    def __len__(self) -> int:
-
-        return int(self.z.shape[0])
-
-
-    def __getitem__(self, idx: int) -> dict:
-
-        item = {"z": self.z[idx], "physics": self.phy[idx]}
-
-        if self.y is not None:
-
-            item["y"] = self.y[idx]
-
-        if self.sample_weight is not None:
-
-            item["sample_weight"] = self.sample_weight[idx]
-
-        if self.raw is not None:
-
-            item["raw"] = self.raw[idx]
-
-        return item
 
 
 def pretrain_moe(
@@ -197,7 +118,7 @@ def pretrain_moe(
     from torch.utils.data import DataLoader
 
 
-    dataset = SpectralDataset(
+    dataset = TorchRegressionDataset(
 
         spectrum_all_norm, phys_all, y_all_norm, sample_weight,
 
@@ -236,7 +157,6 @@ def pretrain_moe(
 
         head_hidden_dim=int(moe_cfg.get("head_hidden_dim", 64)),
 
-        decouple_temperature=bool(moe_cfg.get("decouple_temperature", True)),
 
         condition_film_cfg=moe_cfg.get("condition_film", None),
 
@@ -244,7 +164,6 @@ def pretrain_moe(
 
         expert_types=moe_cfg.get("expert_types", None),
 
-        use_moe=bool(moe_cfg.get("use_moe", True)),
 
         mamba_cfg=moe_cfg.get("mamba", None),
 
@@ -416,7 +335,7 @@ def main() -> None:
 
     split_seed = resolve_split_seed(split_cfg, seed)
 
-    train_idx, val_idx, test_idx, split_meta = split_from_config(
+    train_idx, val_idx, split_meta = split_from_config(
 
         len(bundle.y), seed=split_seed, split_cfg=split_cfg,
 
@@ -439,7 +358,7 @@ def main() -> None:
 
         print(f"[data] fraction={data_fraction:.2f}, training samples={len(train_idx)}")
 
-    print(f"[data] train={len(train_idx)}, validation={len(val_idx)}, test={len(test_idx)}")
+    print(f"[data] train={len(train_idx)}, validation={len(val_idx)}")
 
 
     feat_cfg = config.get("features", {})
@@ -452,7 +371,7 @@ def main() -> None:
     ):
         raise ValueError(
             "features.tracked_centers_nm and gan.pinn.tracked_centers_nm must be the "
-            "same ordered two-dip vector for dual-dip PCST evaluation"
+            "same ordered two-dip vector for dual-dip PCST screening"
         )
 
     physics, feature_names = extract_physics_features(
@@ -475,10 +394,6 @@ def main() -> None:
 
     phys_train = apply_feature_standardizer(physics[train_idx], phys_mean, phys_std)
 
-    phys_val = apply_feature_standardizer(physics[val_idx], phys_mean, phys_std)
-
-    phys_test = apply_feature_standardizer(physics[test_idx], phys_mean, phys_std)
-
 
     trough_indices = [
 
@@ -492,18 +407,9 @@ def main() -> None:
 
 
     spectrum_train = bundle.x[train_idx].astype(np.float32)
-    spectrum_val = bundle.x[val_idx].astype(np.float32)
-    spectrum_test = bundle.x[test_idx].astype(np.float32)
-    (spectrum_train_norm, spectrum_val_norm, spectrum_test_norm), spectrum_mean, spectrum_std = standardize_spectrum(
-        spectrum_train, spectrum_val, spectrum_test
-    )
+    spectrum_train_norm, spectrum_mean, spectrum_std = standardize_spectrum(spectrum_train)
 
-
-    y_results = standardize_labels(bundle.y[train_idx], bundle.y[val_idx], bundle.y[test_idx])
-
-    y_train_norm, y_val_norm, y_test_norm = y_results[:3]
-
-    y_mean, y_std = y_results[3], y_results[4]
+    y_train_norm, y_mean, y_std = standardize_labels(bundle.y[train_idx])
 
 
     np.savez(
@@ -814,15 +720,8 @@ def main() -> None:
     moe_cfg = config.get("heterogeneous_moe", {})
 
 
-    decouple_temp_pretrain = pretrain_cfg.get("decouple_temperature_pretrain", False)
-
     moe_cfg_for_pretrain = dict(moe_cfg)
-
-    moe_cfg_for_pretrain["decouple_temperature"] = bool(decouple_temp_pretrain)
-
-    if not decouple_temp_pretrain:
-
-        print("[Phase 3] decouple_temperature=False (temperature loss updates the backbone)")
+    print("[Phase 3] joint temperature/salinity optimization updates the shared backbone")
 
 
     _uses_raw_spectrum = any(
@@ -931,61 +830,7 @@ def main() -> None:
     )
 
 
-    import torch
-
-    from torch.utils.data import DataLoader as DL
-
-    moe_model.eval()
-
-    val_ds = SpectralDataset(
-
-        spectrum_val_norm, phys_val, y_val_norm,
-
-        raw_spectrum=bundle.x[val_idx] if _uses_raw_spectrum else None,
-
-    )
-
-    val_loader = DL(val_ds, batch_size=32, shuffle=False)
-
-    y_preds, y_trues = [], []
-
-    with torch.no_grad():
-
-        for batch in val_loader:
-
-            raw = batch.get("raw")
-
-            if raw is not None:
-
-                raw = raw.to(device)
-
-            out = moe_model(batch["z"].to(device), batch["physics"].to(device), raw_spectrum=raw)
-
-            y_preds.append(out["prediction"].cpu().numpy())
-
-            y_trues.append(batch["y"].numpy())
-
-    if y_preds:
-
-        y_pred_s = np.concatenate(y_preds) * y_std + y_mean
-
-        y_true_s = np.concatenate(y_trues) * y_std + y_mean
-
-        metrics = regression_metrics(y_true_s, y_pred_s, bundle.target_names)
-
-        print(f"[validation metrics] {metrics}")
-
-    else:
-
-        metrics = {}
-
-        print("[validation] skipped because the validation split is empty")
-
-
-    write_json(Path(output_dir) / "pretrain_metrics.json", {
-
-        "val_metrics": metrics,
-
+    write_json(Path(output_dir) / "pretrain_summary.json", {
         "spectrum_length": int(bundle.x.shape[1]),
 
         "n_synthetic": n_synthetic,

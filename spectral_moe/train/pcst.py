@@ -99,23 +99,6 @@ def calibrate_inverse_tau(
     }
 
 
-def build_quality_features(
-    z_norm: np.ndarray,
-    tracked_wavelengths_norm: np.ndarray,
-    tracked_intensities_norm: np.ndarray,
-    dip_features_norm: np.ndarray,
-) -> np.ndarray:
-
-    parts = [z_norm]
-    if tracked_wavelengths_norm.size > 0:
-        parts.append(tracked_wavelengths_norm)
-    if tracked_intensities_norm.size > 0:
-        parts.append(tracked_intensities_norm)
-    if dip_features_norm.size > 0:
-        parts.append(dip_features_norm)
-    return np.concatenate(parts, axis=1).astype(np.float64)
-
-
 def _compute_condition_bin_ids(
     y: np.ndarray, y_train: np.ndarray, bins: tuple[int, int]
 ) -> np.ndarray:
@@ -138,14 +121,6 @@ def _train_bin_ratios(
     counts = np.bincount(ids, minlength=n_bins).astype(np.float64)
     ratios = counts / max(counts.sum(), 1.0)
     return ratios, counts
-
-
-def _spectral_novelty(z_norm: np.ndarray, ref_norm: np.ndarray) -> np.ndarray:
-
-    if ref_norm.shape[0] == 0:
-        return np.zeros(z_norm.shape[0], dtype=np.float64)
-    idx, dists = _knn_indices_and_dists(z_norm, ref_norm, k=1)
-    return dists[:, 0]
 
 
 def _mmr_select_within_bin(

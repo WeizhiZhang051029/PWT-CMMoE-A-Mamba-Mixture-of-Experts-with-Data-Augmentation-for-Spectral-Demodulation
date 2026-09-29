@@ -130,18 +130,6 @@ def extract_physics_features(
     return np.asarray(rows, dtype=np.float32), names
 
 
-def standardize_features(
-    train: np.ndarray,
-    *others: np.ndarray,
-) -> tuple[np.ndarray, ...]:
-
-
-    mean = train.mean(axis=0, keepdims=True)
-    std = train.std(axis=0, keepdims=True)
-    std[std == 0] = 1.0
-    return tuple(((arr - mean) / std).astype(np.float32) for arr in (train, *others))
-
-
 def fit_feature_standardizer(train: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 

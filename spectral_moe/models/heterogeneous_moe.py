@@ -51,45 +51,6 @@ if nn is not None:
             return self.out(h)
 
 
-    class MultiScaleCNNExpert(nn.Module):
-
-
-        def __init__(
-            self,
-            in_dim: int,
-            conv_channels: int,
-            out_dim: int,
-            kernels: list[int] | None = None,
-            dropout: float = 0.1,
-        ) -> None:
-            super().__init__()
-            kernels = kernels or [3, 5, 7]
-            self.branches = nn.ModuleList([
-                nn.Sequential(
-                    nn.Conv1d(1, conv_channels, k, padding=k // 2),
-                    nn.BatchNorm1d(conv_channels),
-                    nn.GELU(),
-                    nn.Conv1d(conv_channels, conv_channels, k, padding=k // 2),
-                    nn.BatchNorm1d(conv_channels),
-                    nn.GELU(),
-                )
-                for k in kernels
-            ])
-            fused_dim = conv_channels * len(kernels)
-            self.pool = nn.AdaptiveAvgPool1d(1)
-            self.head = nn.Sequential(
-                nn.Linear(fused_dim, fused_dim),
-                nn.GELU(),
-                nn.Dropout(dropout),
-                nn.Linear(fused_dim, out_dim),
-            )
-
-        def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-
-            seq = x.unsqueeze(1)
-            outs = [self.pool(branch(seq)).squeeze(-1) for branch in self.branches]
-            return self.head(torch.cat(outs, dim=-1))
-
     class RawSpectrumCNNExpert(nn.Module):
 
 
@@ -159,59 +120,6 @@ if nn is not None:
             else:
                 x = torch.cat([spectrum_features, f_phys], dim=-1)
             return self.mlp(x)
-
-
-    class TransformerExpert(nn.Module):
-
-
-        def __init__(
-            self,
-            spectrum_dim: int,
-            embed_dim: int = 32,
-            n_heads: int = 4,
-            n_layers: int = 2,
-            out_dim: int = 64,
-            dropout: float = 0.1,
-        ) -> None:
-            super().__init__()
-
-            embed_dim = max(n_heads, (embed_dim // n_heads) * n_heads)
-            self.token_emb = nn.Linear(1, embed_dim)
-            pos_emb = self._make_sinusoidal_pos(spectrum_dim, embed_dim)
-            self.register_buffer("pos_emb", pos_emb)
-
-            encoder_layer = nn.TransformerEncoderLayer(
-                d_model=embed_dim,
-                nhead=n_heads,
-                dim_feedforward=embed_dim * 2,
-                dropout=dropout,
-                batch_first=True,
-                norm_first=True,
-            )
-            self.transformer = nn.TransformerEncoder(
-                encoder_layer, num_layers=n_layers, enable_nested_tensor=False
-            )
-            self.norm = nn.LayerNorm(embed_dim)
-            self.out = nn.Linear(embed_dim, out_dim)
-
-        @staticmethod
-        def _make_sinusoidal_pos(seq_len: int, dim: int) -> "torch.Tensor":
-            pos = torch.arange(seq_len, dtype=torch.float32).unsqueeze(1)
-            i = torch.arange(0, dim, 2, dtype=torch.float32)
-            pe = torch.zeros(seq_len, dim)
-            pe[:, 0::2] = torch.sin(pos / (10000 ** (i / dim)))
-            if dim % 2 == 1:
-                pe[:, 1::2] = torch.cos(pos / (10000 ** (i[:-1] / dim)))
-            else:
-                pe[:, 1::2] = torch.cos(pos / (10000 ** (i / dim)))
-            return pe.unsqueeze(0)
-
-        def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-
-            tokens = self.token_emb(x.unsqueeze(-1)) + self.pos_emb
-            encoded = self.transformer(tokens)
-            pooled = self.norm(encoded.mean(dim=1))
-            return self.out(pooled)
 
 
     class RawSpectrumMambaExpert(nn.Module):
@@ -459,11 +367,9 @@ if nn is not None:
             trough_indices: list[int] | None = None,
             dropout: float = 0.1,
             head_hidden_dim: int = 64,
-            decouple_temperature: bool = True,
             condition_film_cfg: dict | None = None,
             physics_heads_cfg: dict | None = None,
             expert_types: list[str] | None = None,
-            use_moe: bool = True,
             mamba_cfg: dict | None = None,
         ) -> None:
             super().__init__()
@@ -472,15 +378,9 @@ if nn is not None:
             self.trough_indices = list(trough_indices or [])
 
 
-            self.decouple_temperature = decouple_temperature
-            _all_types = ["mlp", "cnn", "physics", "mamba", "transformer"]
-            self.use_moe = bool(use_moe)
-            if not self.use_moe:
-                self.active_expert_types = ["single_shared"]
-            elif expert_types is None:
-
-
-                self.active_expert_types = ["mlp", "cnn", "physics", "transformer"]
+            _all_types = ["mlp", "cnn", "physics", "mamba"]
+            if expert_types is None:
+                self.active_expert_types = ["mlp", "cnn", "physics", "mamba"]
             else:
                 normalized = [str(t).lower() for t in expert_types]
                 self.active_expert_types = [t for t in normalized if t in _all_types]
@@ -498,22 +398,18 @@ if nn is not None:
             )
 
 
-            if not self.use_moe:
-                self.single_shared_expert = MLPExpert(hidden_dim, hidden_dim, expert_out_dim, dropout)
             if "mlp" in self.active_expert_types:
                 self.expert_mlp = MLPExpert(hidden_dim, hidden_dim, expert_out_dim, dropout)
 
-            self._cnn_input = "raw"
             if "cnn" in self.active_expert_types:
                 cnn_cfg = (mamba_cfg or {}).get("cnn", {})
-                self._cnn_input = str(cnn_cfg.get("input", "raw")).lower()
                 conv_ch = int(cnn_cfg.get("channels", max(hidden_dim // 4, 16)))
-                if self._cnn_input == "raw":
-                    self.expert_cnn = RawSpectrumCNNExpert(expert_out_dim, spectral_length=int(cnn_cfg.get("spectral_length", 2048)), channels=conv_ch, dropout=dropout)
-                elif self._cnn_input == "latent":
-                    self.expert_cnn = MultiScaleCNNExpert(hidden_dim, conv_ch, expert_out_dim, kernels=[3, 5, 7], dropout=dropout)
-                else:
-                    raise ValueError("mamba.cnn.input must be 'raw' or 'latent'")
+                self.expert_cnn = RawSpectrumCNNExpert(
+                    expert_out_dim,
+                    spectral_length=int(cnn_cfg.get("spectral_length", 2048)),
+                    channels=conv_ch,
+                    dropout=dropout,
+                )
 
             if "physics" in self.active_expert_types:
                 self.expert_phys = PhysicsMappingExpert(
@@ -535,23 +431,11 @@ if nn is not None:
                     backend=str(mamba_cfg.get("backend", "mamba2")),
                 )
 
-            if "transformer" in self.active_expert_types:
-                transformer_cfg = (mamba_cfg or {}).get("transformer", {})
-                self.expert_transformer = TransformerExpert(
-                    spectrum_dim=spectrum_dim,
-                    embed_dim=int(transformer_cfg.get("embed_dim", 32)),
-                    n_heads=int(transformer_cfg.get("n_heads", 4)),
-                    n_layers=int(transformer_cfg.get("n_layers", 2)),
-                    out_dim=expert_out_dim,
-                    dropout=dropout,
-                )
-
-
             actual_top_k = min(top_k, self._n_experts)
             # The retained main model always uses Top-2 sparse routing.
-            self.router = (HeterogeneousTopKRouter(
+            self.router = HeterogeneousTopKRouter(
                 hidden_dim, num_experts=self._n_experts, top_k=actual_top_k
-            ) if self.use_moe else None)
+            )
 
 
             film_cfg = condition_film_cfg or {}
@@ -639,39 +523,39 @@ if nn is not None:
                 cond_emb = self.condition_encoder(cond_input)
                 h_shared = self.film(h_shared, cond_emb)
 
-            if self.use_moe:
-                route_weights, route_logits = self.router(h_shared)
-                expert_outputs = []
-                if "mlp" in self.active_expert_types:
-                    expert_outputs.append(self.expert_mlp(h_shared))
-                if "cnn" in self.active_expert_types:
-                    if self._cnn_input == "raw":
-                        expert_outputs.append(self.expert_cnn(raw_spectrum, spectrum_features.shape[0], spectrum_features.device, spectrum_features.dtype))
-                    else:
-                        expert_outputs.append(self.expert_cnn(h_shared))
-                if "physics" in self.active_expert_types:
-                    expert_outputs.append(self.expert_phys(spectrum_features, f_phys))
-                if "mamba" in self.active_expert_types:
-                    expert_outputs.append(
-                        self.expert_mamba(raw_spectrum, spectrum_features.shape[0], spectrum_features.device, spectrum_features.dtype)
+            route_weights, route_logits = self.router(h_shared)
+            expert_outputs = []
+            if "mlp" in self.active_expert_types:
+                expert_outputs.append(self.expert_mlp(h_shared))
+            if "cnn" in self.active_expert_types:
+                expert_outputs.append(
+                    self.expert_cnn(
+                        raw_spectrum,
+                        spectrum_features.shape[0],
+                        spectrum_features.device,
+                        spectrum_features.dtype,
                     )
-                if "transformer" in self.active_expert_types:
-                    expert_outputs.append(self.expert_transformer(spectrum_features))
-                stacked = torch.stack(expert_outputs, dim=1)
-                mixed = torch.sum(stacked * route_weights.unsqueeze(-1), dim=1)
-            else:
-                mixed = self.single_shared_expert(h_shared)
-                expert_outputs = [mixed]
-                route_weights = torch.ones((h_shared.shape[0], 1), device=h_shared.device, dtype=h_shared.dtype)
-                route_logits = torch.zeros_like(route_weights)
+                )
+            if "physics" in self.active_expert_types:
+                expert_outputs.append(self.expert_phys(spectrum_features, f_phys))
+            if "mamba" in self.active_expert_types:
+                expert_outputs.append(
+                    self.expert_mamba(
+                        raw_spectrum,
+                        spectrum_features.shape[0],
+                        spectrum_features.device,
+                        spectrum_features.dtype,
+                    )
+                )
+            stacked = torch.stack(expert_outputs, dim=1)
+            mixed = torch.sum(stacked * route_weights.unsqueeze(-1), dim=1)
 
 
             troughs = f_phys[:, self.trough_indices] if self.trough_indices else None
             trough_sq = troughs ** 2 if troughs is not None else None
 
 
-            mixed_for_temp = mixed.detach() if self.decouple_temperature else mixed
-            temp_shared = self.shared_head(mixed_for_temp)
+            temp_shared = self.shared_head(mixed)
 
             if self._use_physics_heads:
 
