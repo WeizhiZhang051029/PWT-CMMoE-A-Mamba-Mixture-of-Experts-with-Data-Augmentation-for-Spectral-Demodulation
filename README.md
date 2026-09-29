@@ -87,21 +87,22 @@ Joint temperature and salinity demodulation
 
 ## 🛠️ Installation
 
-Create a new Conda environment and install the required packages:
+Create a new Conda environment and install a PyTorch build compatible with your CUDA environment:
 
 ```bash
 conda create -n pwt_cmmoe python=3.10
 conda activate pwt_cmmoe
+# Install the PyTorch build matching your CUDA toolkit and GPU driver.
 pip install -r requirements.txt
 ```
 
-Install a PyTorch build compatible with your CUDA environment before installing the Mamba dependency:
+The default Mamba expert requires `mamba-ssm`, which is installed separately:
 
 ```bash
 pip install mamba-ssm --no-build-isolation
 ```
 
-The default Mamba expert requires `mamba-ssm`. Please ensure that the installed PyTorch, CUDA toolkit, and GPU driver versions are compatible.
+Before running the pipeline, place the user-provided dataset at the paths specified in `configs/config.yaml` (by default, `data/spectra.npz` and `data/labels.csv`). The dataset is not included in this repository.
 
 ## ⚙️ Configuration
 
@@ -130,10 +131,10 @@ Please update the dataset paths and relevant hyperparameters before running the 
 
 ### Complete Training Pipeline
 
-Run the complete PWT-CMMoE pipeline with:
+Run the complete training pipeline with:
 
 ```bash
-python train.py --config configs/config.yaml
+python train.py --stage all --config configs/config.yaml
 ```
 
 The pipeline sequentially:
@@ -142,8 +143,7 @@ The pipeline sequentially:
 2. generates condition-labelled candidate spectra;
 3. screens and confidence-weights synthetic spectra using PCST;
 4. pretrains CMMoE on the selected synthetic spectra;
-5. optimizes CMMoE on measured spectra under CATB;
-6. evaluates joint temperature and salinity demodulation performance.
+5. fine-tunes CMMoE on measured spectra using Adapters and CATB.
 
 ### Stage-by-Stage Execution
 
@@ -152,38 +152,35 @@ Each training stage can also be executed independently.
 #### 1. Train the Physics-Guided WGAN-GP
 
 ```bash
-python train_gan.py \
-  --config configs/config.yaml
+python train.py --stage gan --config configs/config.yaml
 ```
 
-#### 2. Generate and Screen Synthetic Spectra
-
-Generate condition-labelled candidate spectra (PCST screening is performed during pretraining):
+#### 2. Generate Candidate Spectra
 
 ```bash
-python train_gan.py --generate-only \
+python train.py --stage generate \
   --config configs/config.yaml \
   --checkpoint outputs/gan/gan_final.pt \
   --output outputs/gan/gan_synthetic.npz
 ```
 
-PCST screening and confidence weighting are performed by `pretrain_moe.py` according to the settings specified in `configs/config.yaml`.
+PCST screening and confidence weighting are performed during the pretraining stage.
 
 #### 3. Pretrain CMMoE
 
 ```bash
-python pretrain_moe.py \
+python train.py --stage pretrain \
   --config configs/config.yaml \
-  --output-dir outputs/pretrain
+  --pretrain-dir outputs/pretrain
 ```
 
-#### 4. Perform CATB-Guided Optimization
+#### 4. Perform CATB-Guided Fine-Tuning
 
 ```bash
-python finetune_adapter.py \
+python train.py --stage finetune \
   --config configs/config.yaml \
   --pretrain-dir outputs/pretrain \
-  --output-dir outputs/adapter
+  --adapter-dir outputs/adapter
 ```
 
 During this stage, the pretrained CMMoE is adapted to measured spectra, while CATB coordinates the temperature and salinity tasks through dynamic task prioritization, conflict-aware gating, and PCGrad-based gradient correction.
@@ -194,35 +191,26 @@ During this stage, the pretrained CMMoE is adapted to measured spectra, while CA
 PWT-CMMoE/
 ├── configs/
 │   └── config.yaml
-├── data/
-│   ├── raw/
+├── data/                         # user-provided; not included
+│   ├── spectra.npz
 │   └── labels.csv
-├── data.py
-├── physics.py
-├── gan.py
-├── moe.py
-├── train.py
-├── train_gan.py
-├── pretrain_moe.py
-├── finetune_adapter.py
-├── outputs/
+├── models/
+│   ├── __init__.py
+│   ├── gan.py                    # WGAN-GP and anti-resonance physics modules
+│   └── moe.py                    # heterogeneous MoE, Mamba, and adapters
+├── data.py                       # data loading and dataset utilities
+├── physics.py                    # physical features and PCST utilities
+├── train.py                      # unified training entrypoint
+├── images/
 ├── requirements.txt
 └── README.md
 ```
 
-The main components are organized as follows:
-
-* `data.py`: data loading, wavelength-grid alignment, linear interpolation, normalization, and shared dataset utilities
-* `physics.py`: physics-feature extraction, PCST screening, physical consistency, and synthetic-data quality utilities
-* `gan.py`: physics-guided WGAN-GP, anti-resonance PINN, and GAN components
-* `moe.py`: heterogeneous experts, sparse routing, bidirectional Mamba, and adapters
-* `train_gan.py`: WGAN-GP training and condition-labelled spectrum generation
-* `pretrain_moe.py`: PCST screening and CMMoE pretraining
-* `finetune_adapter.py`: CATB-guided Adapter fine-tuning
+The repository contains the final training implementation only. Test, inference, and evaluation scripts are not included.
 
 ## 📈 Outputs
 
-All generated artifacts are saved in the `outputs/` directory:
+All generated training artifacts are saved in the `outputs/` directory:
 
 ```text
 outputs/
@@ -235,23 +223,21 @@ outputs/
 │   ├── normalization.npz
 │   ├── synthetic_quality.json
 │   └── pretrain_summary.json
-├── adapter/
-│   ├── best_adapter.pt
-│   ├── training_summary.json
-│   └── mtl_conflict_history.json
+└── adapter/
+    ├── best_adapter.pt
+    ├── training_summary.json
+    └── mtl_conflict_history.json
 ```
 
 The outputs include:
 
-* trained model checkpoints
-* generated candidate spectra
-* PCST confidence scores and sample-selection results
-* CMMoE pretraining and optimization logs
-* expert-routing statistics
-* temperature and salinity predictions
-* regression metrics and visualization results
+* trained model checkpoints;
+* generated candidate spectra;
+* PCST quality reports, confidence weights, and selection records;
+* normalization statistics and training summaries;
+* CATB task-weight and gradient-conflict history.
 
-Generated checkpoints, synthetic spectra, predictions, and intermediate files are excluded from version control by default.
+Generated checkpoints, synthetic spectra, and intermediate training files are excluded from version control by default.
 
 ## 📏 Evaluation Metrics
 
