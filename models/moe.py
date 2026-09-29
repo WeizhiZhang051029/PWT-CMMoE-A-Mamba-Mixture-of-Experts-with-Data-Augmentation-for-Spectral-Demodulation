@@ -647,13 +647,6 @@ if nn is not None:
             a = self.adapter_up(self.adapter_dropout(self.adapter_act(self.adapter_down(h))))
             return h + self.scale * a
 
-        @property
-        def trainable_param_count(self) -> int:
-            return int(
-                self.adapter_down.weight.numel() + self.adapter_down.bias.numel()
-                + self.adapter_up.weight.numel() + self.adapter_up.bias.numel()
-            )
-
         def extra_repr(self) -> str:
             return (
                 f"in={self.in_features}, out={self.out_features}, "
