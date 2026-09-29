@@ -51,6 +51,12 @@ from physics import (
 ROOT = Path(__file__).resolve().parent
 
 
+def _project_path(value: str | Path) -> Path:
+    """Resolve repository-relative paths independently of the caller's cwd."""
+    path = Path(value)
+    return path.resolve() if path.is_absolute() else (ROOT / path).resolve()
+
+
 def train_gan_stage(args) -> None:
 
     try:
@@ -92,7 +98,7 @@ def train_gan_stage(args) -> None:
 
         return
 
-    output_dir = ensure_dir(gan_cfg.get("output_dir", "runs/gan"))
+    output_dir = ensure_dir(_project_path(gan_cfg.get("output_dir", "runs/gan")))
 
 
     split_cfg = config.get("data", {}).get("split", {})
@@ -497,7 +503,7 @@ def generate_synthetic(config_path: str, checkpoint_path: str, output_path: str,
 
     split_seed = resolve_split_seed(split_cfg, seed)
 
-    train_idx, _ = split_from_config(
+    train_idx, _, _ = split_from_config(
 
         len(bundle.y), seed=split_seed, split_cfg=split_cfg,
 
@@ -899,7 +905,9 @@ def pretrain_stage(args) -> None:
     set_seed(seed)
 
 
-    output_dir_str = args.output_dir or config.get("pretrain", {}).get("output_dir", "runs/diffusion_pretrain")
+    output_dir_str = args.output_dir or _project_path(
+        config.get("pretrain", {}).get("output_dir", "runs/diffusion_pretrain")
+    )
 
     output_dir = ensure_dir(output_dir_str)
 
@@ -1010,6 +1018,8 @@ def pretrain_stage(args) -> None:
 
 
     gan_synthetic_path = pretrain_cfg.get("gan_synthetic_path")
+    if gan_synthetic_path:
+        gan_synthetic_path = _project_path(gan_synthetic_path)
 
     n_synthetic = 0
     synthetic_confidence = None
@@ -1588,7 +1598,9 @@ def finetune_stage(args) -> None:
 
 
     ft_cfg = config.get("adapter_finetune", {})
-    output_dir_str = args.output_dir or ft_cfg.get("output_dir", f"runs/adapter_b{bottleneck_dim}")
+    output_dir_str = args.output_dir or _project_path(
+        ft_cfg.get("output_dir", f"runs/adapter_b{bottleneck_dim}")
+    )
     output_dir = ensure_dir(output_dir_str)
 
     epochs = args.epochs if args.epochs is not None else int(ft_cfg.get("epochs", 500))
@@ -1981,8 +1993,11 @@ def finetune_stage(args) -> None:
             _mtl_str = ""
             if use_adaptive_mtl and mtl_balancer and mtl_balancer.history:
                 _h = mtl_balancer.history[-1]
+                _conflict_text = (
+                    "n/a" if _h["C"] is None else f"{_h['C']:.3f}"
+                )
                 _mtl_str = (f" lT={_h['lambda_T']:.3f} lS={_h['lambda_S']:.3f}"
-                            f" C={_h['C']:.3f}")
+                            f" C={_conflict_text}")
             print(
                 f"  epoch={epoch:>4}  train={train_avg:.5f}  val={val_avg:.5f}"
                 f"{_mae_str}  ema={val_ema:.5f}  best={best_val:.5f}@ep{best_epoch}{_mtl_str}"
@@ -2027,20 +2042,13 @@ def finetune_stage(args) -> None:
 
     print(f"[complete] adapter fine-tuning results saved to {output_dir}")
 
-def _resolve_path(value: str) -> str:
-    path = Path(value)
-    return str((ROOT / path).resolve() if not path.is_absolute() else path.resolve())
-
-
 def run_all(args: Namespace) -> None:
-    config_path = _resolve_path(args.config)
+    config_path = str(_project_path(args.config))
     loaded_config = load_config(config_path)
 
-    gan_dir = Path(loaded_config.get("gan", {}).get("output_dir", "outputs/gan"))
-    if not gan_dir.is_absolute():
-        gan_dir = (ROOT / gan_dir).resolve()
-    pretrain_dir = Path(_resolve_path(args.pretrain_dir))
-    adapter_dir = Path(_resolve_path(args.adapter_dir))
+    gan_dir = _project_path(loaded_config.get("gan", {}).get("output_dir", "outputs/gan"))
+    pretrain_dir = _project_path(args.pretrain_dir)
+    adapter_dir = _project_path(args.adapter_dir)
 
     if not args.skip_gan:
         train_gan_stage(Namespace(
@@ -2099,7 +2107,7 @@ def main() -> None:
         run_all(args)
     elif args.stage == "gan":
         train_gan_stage(Namespace(
-            config=_resolve_path(args.config),
+            config=str(_project_path(args.config)),
             force=args.force,
             generate_only=False,
             checkpoint=None,
@@ -2110,23 +2118,23 @@ def main() -> None:
         if not args.checkpoint or not args.output:
             parser.error("--stage generate requires --checkpoint and --output")
         train_gan_stage(Namespace(
-            config=_resolve_path(args.config),
+            config=str(_project_path(args.config)),
             force=False,
             generate_only=True,
-            checkpoint=_resolve_path(args.checkpoint),
-            output=_resolve_path(args.output),
+            checkpoint=str(_project_path(args.checkpoint)),
+            output=str(_project_path(args.output)),
             n_synthetic=args.n_synthetic,
         ))
     elif args.stage == "pretrain":
         pretrain_stage(Namespace(
-            config=_resolve_path(args.config),
-            output_dir=_resolve_path(args.output_dir or args.pretrain_dir),
+            config=str(_project_path(args.config)),
+            output_dir=str(_project_path(args.output_dir or args.pretrain_dir)),
         ))
     elif args.stage == "finetune":
         finetune_stage(Namespace(
-            config=_resolve_path(args.config),
-            pretrain_dir=_resolve_path(args.pretrain_dir),
-            output_dir=_resolve_path(args.output_dir or args.adapter_dir),
+            config=str(_project_path(args.config)),
+            pretrain_dir=str(_project_path(args.pretrain_dir)),
+            output_dir=str(_project_path(args.output_dir or args.adapter_dir)),
             epochs=args.epochs,
         ))
 
