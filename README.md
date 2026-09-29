@@ -102,8 +102,6 @@ The default Mamba expert requires `mamba-ssm`, which is installed separately:
 pip install mamba-ssm --no-build-isolation
 ```
 
-Before running the pipeline, place the dataset at the paths specified in `configs/config.yaml`.
-
 ## ⚙️ Configuration
 
 All experiment settings are specified in:
