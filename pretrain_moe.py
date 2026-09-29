@@ -10,7 +10,7 @@ import numpy as np
 
 from dataset import TorchRegressionDataset, load_spectrum_bundle
 
-from physical_features import (
+from physics import (
 
     apply_feature_standardizer,
 
@@ -27,17 +27,17 @@ from synthetic_quality import (
     synthetic_quality_report,
 )
 
-from physics_consistency import fit_forward_trough_calibrator, predict_forward_troughs
+from physics import fit_forward_trough_calibrator, predict_forward_troughs
 
 from heterogeneous_moe import HeterogeneousMoE
 
-from config import load_config
+from utils import load_config
 
-from io_utils import ensure_dir, write_json
+from utils import ensure_dir, write_json
 
-from seed import set_seed
+from utils import set_seed
 
-from splits import (
+from utils import (
 
     resolve_split_seed,
 

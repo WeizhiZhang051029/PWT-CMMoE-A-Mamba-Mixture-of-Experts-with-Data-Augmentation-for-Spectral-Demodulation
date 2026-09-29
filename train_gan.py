@@ -37,17 +37,17 @@ from gan import (
 
 )
 
-from physics_informed import smoothness_loss
+from gan_components import smoothness_loss
 
-from physics_consistency import design_matrix
+from physics import design_matrix
 
-from config import load_config
+from utils import load_config
 
-from io_utils import ensure_dir, write_json
+from utils import ensure_dir, write_json
 
-from seed import set_seed
+from utils import set_seed
 
-from splits import (
+from utils import (
     resolve_split_seed,
     split_from_config,
     subsample_train_indices,

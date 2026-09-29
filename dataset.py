@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from io_utils import DEFAULT_LABELS, DEFAULT_MATRIX, resolve_project_path
+from utils import DEFAULT_LABELS, DEFAULT_MATRIX, resolve_project_path
 
 
 @dataclass
@@ -109,7 +109,7 @@ def load_spectrum_bundle(config: dict[str, Any]) -> SpectrumBundle:
 
         align_candidate = Path(str(align_npz))
         if not align_candidate.is_absolute():
-            from io_utils import PROJECT_ROOT
+            from utils import PROJECT_ROOT
             align_candidate = (PROJECT_ROOT / align_candidate).resolve()
         if not align_candidate.exists():
             raise FileNotFoundError(f"align_to_wavelength_npz not found: {align_candidate}")

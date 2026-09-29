@@ -56,3 +56,8 @@ else:
             require_torch()
 
     pass
+def smoothness_loss(reconstructed):
+    if torch is None:
+        require_torch()
+    second = reconstructed[..., 2:] - 2 * reconstructed[..., 1:-1] + reconstructed[..., :-2]
+    return torch.mean(second**2)

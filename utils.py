@@ -1,10 +1,63 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import random
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
+import yaml
 
+
+def load_config(path: str | Path) -> dict[str, Any]:
+    config_path = Path(path)
+    with config_path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    data["_config_path"] = str(config_path.resolve())
+    data["_config_dir"] = str(config_path.resolve().parent)
+    return data
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+DEFAULT_MATRIX = PROJECT_ROOT / "data" / "spectra.npz"
+DEFAULT_LABELS = PROJECT_ROOT / "data" / "labels.csv"
+
+
+def resolve_project_path(path: str | Path | None, default: Path) -> Path:
+    if path is None or str(path).strip() == "":
+        return default
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    return (PROJECT_ROOT / candidate).resolve()
+
+
+def ensure_dir(path: str | Path) -> Path:
+    directory = Path(path)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def write_json(path: str | Path, payload: dict[str, Any]) -> None:
+    path = Path(path)
+    ensure_dir(path.parent)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+
+def set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        import torch
+
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
+    except Exception:
+        pass
 
 def resolve_split_seed(split_cfg: dict, default_seed: int) -> int:
     """Resolve the reproducible seed used by the train/validation split."""

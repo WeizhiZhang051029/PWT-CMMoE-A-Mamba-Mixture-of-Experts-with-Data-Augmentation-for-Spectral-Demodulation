@@ -16,7 +16,7 @@ except ImportError:
     nn = None
 
 
-from cnn_blocks import ConvBNAct, require_torch
+from gan_components import ConvBNAct, require_torch
 
 
 if nn is not None:
