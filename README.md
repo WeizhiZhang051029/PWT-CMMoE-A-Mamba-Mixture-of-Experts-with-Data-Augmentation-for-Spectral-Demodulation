@@ -102,7 +102,7 @@ The default Mamba expert requires `mamba-ssm`, which is installed separately:
 pip install mamba-ssm --no-build-isolation
 ```
 
-Before running the pipeline, place the user-provided dataset at the paths specified in `configs/config.yaml` (by default, `data/spectra.npz` and `data/labels.csv`). The dataset is not included in this repository.
+Before running the pipeline, place the user-provided dataset at the paths specified in `configs/config.yaml` (by default, `data/spectra.npz` and `data/labels.csv`).
 
 ## ⚙️ Configuration
 
