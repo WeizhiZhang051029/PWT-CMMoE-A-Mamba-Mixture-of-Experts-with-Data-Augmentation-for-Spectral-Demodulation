@@ -5,7 +5,6 @@ data:
   exclude_experiment_types:
   - stability
   use_zscore: false
-  input_length: 26668
   target_names:
   - temperature_c
   - salinity_ppt

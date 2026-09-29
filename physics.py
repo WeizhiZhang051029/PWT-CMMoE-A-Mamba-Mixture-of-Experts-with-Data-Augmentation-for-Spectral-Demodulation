@@ -705,6 +705,8 @@ def synthetic_acceptance_mask(
     *,
     max_conditional_trough_mae_nm: float,
     manifold_percentile: float = 95.0,
+    precomputed_nearest: np.ndarray | None = None,
+    precomputed_radius: float | None = None,
 ) -> tuple[np.ndarray, dict]:
 
 
@@ -718,9 +720,19 @@ def synthetic_acceptance_mask(
         raise ValueError("feature arrays must be 2-D with matching feature dimensions")
     if observed.shape != expected.shape or observed.shape[0] != synthetic.shape[0]:
         raise ValueError("trough arrays must match and align with synthetic_features")
-    nearest, radius = real_manifold_distances(
-        reference, synthetic, percentile=manifold_percentile
-    )
+    if (precomputed_nearest is None) != (precomputed_radius is None):
+        raise ValueError(
+            "precomputed_nearest and precomputed_radius must be provided together"
+        )
+    if precomputed_nearest is None:
+        nearest, radius = real_manifold_distances(
+            reference, synthetic, percentile=manifold_percentile
+        )
+    else:
+        nearest = np.asarray(precomputed_nearest, dtype=np.float64)
+        radius = float(precomputed_radius)
+        if nearest.shape != (len(synthetic),):
+            raise ValueError("precomputed_nearest must align with synthetic_features")
     trough_mae = np.mean(np.abs(observed - expected), axis=1)
     accepted = (trough_mae <= max_conditional_trough_mae_nm) & (nearest <= radius)
 

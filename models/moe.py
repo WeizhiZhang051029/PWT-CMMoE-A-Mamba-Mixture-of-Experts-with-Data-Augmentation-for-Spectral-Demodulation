@@ -720,13 +720,6 @@ if nn is not None:
             else:
                 param.requires_grad_(False)
 
-    def get_adapter_parameters(model: "nn.Module") -> list["nn.Parameter"]:
-
-        return [
-            p for name, p in model.named_parameters()
-            if ("adapter_down" in name or "adapter_up" in name) and p.requires_grad
-        ]
-
     def count_parameters(model: "nn.Module") -> dict[str, int]:
 
         total = sum(p.numel() for p in model.parameters())
@@ -753,9 +746,6 @@ else:
         _require_torch()
 
     def freeze_non_adapter(*args, **kwargs):
-        _require_torch()
-
-    def get_adapter_parameters(*args, **kwargs):
         _require_torch()
 
     def count_parameters(*args, **kwargs):

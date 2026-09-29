@@ -164,7 +164,7 @@ def train_gan_stage(args) -> None:
 
     latent_dim = int(gan_cfg.get("latent_dim", 64))
     generator = ConditionalGenerator(latent_dim, condition_dim=2, output_length=bundle.x.shape[1]).to(device)
-    critic = ConditionalCritic(condition_dim=2, input_length=bundle.x.shape[1]).to(device)
+    critic = ConditionalCritic(condition_dim=2).to(device)
 
     learning_rate = float(gan_cfg.get("learning_rate", 1e-4))
 
@@ -1117,6 +1117,11 @@ def pretrain_stage(args) -> None:
 
             if bool(gate_cfg.get("enabled", False)):
 
+                nearest_manifold_dist_syn, manifold_radius = real_manifold_distances(
+                    audit_real,
+                    audit_synthetic,
+                    percentile=float(gate_cfg.get("manifold_percentile", 95.0)),
+                )
                 accepted, gate_audit = synthetic_acceptance_mask(
 
                     audit_real, audit_synthetic, observed_wavelengths, expected_wavelengths,
@@ -1128,6 +1133,8 @@ def pretrain_stage(args) -> None:
                     ),
 
                     manifold_percentile=float(gate_cfg.get("manifold_percentile", 95.0)),
+                    precomputed_nearest=nearest_manifold_dist_syn,
+                    precomputed_radius=manifold_radius,
 
                 )
 
@@ -1174,11 +1181,6 @@ def pretrain_stage(args) -> None:
                         trough_mae = np.mean(
                             np.abs(observed_wavelengths - expected_wavelengths), axis=1
                         )
-                        nearest, manifold_radius = real_manifold_distances(
-                            audit_real,
-                            audit_synthetic,
-                            percentile=float(gate_cfg.get("manifold_percentile", 95.0)),
-                        )
                         selection = select_cmi_pcqd(
                             F_real=audit_real,
                             y_real=bundle.y[train_idx],
@@ -1187,7 +1189,7 @@ def pretrain_stage(args) -> None:
                             y_syn=y_synth_raw,
                             z_syn_norm=spectrum_synth_norm,
                             trough_mae_syn_nm=trough_mae,
-                            nearest_manifold_dist_syn=nearest,
+                            nearest_manifold_dist_syn=nearest_manifold_dist_syn,
                             manifold_radius=manifold_radius,
                             max_conditional_trough_mae_nm=float(
                                 selector_cfg.get("soft_trough_mae_nm", 8.0)

@@ -355,7 +355,7 @@ if nn is not None:
 
     class ConditionalCritic(nn.Module):
 
-        def __init__(self, condition_dim: int, input_length: int, base_channels: int = 32):
+        def __init__(self, condition_dim: int, base_channels: int = 32):
 
             super().__init__()
 
