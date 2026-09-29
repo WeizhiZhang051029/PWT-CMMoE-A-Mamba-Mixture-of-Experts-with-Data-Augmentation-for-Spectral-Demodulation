@@ -54,7 +54,6 @@ heterogeneous_moe:
 pretrain:
   output_dir: outputs/pretrain
   gan_synthetic_path: outputs/gan/gan_synthetic.npz
-  audit_gan_synthetic_quality: true
   synthetic_quality_gate:
     enabled: true
     max_conditional_trough_mae_nm: 16.0

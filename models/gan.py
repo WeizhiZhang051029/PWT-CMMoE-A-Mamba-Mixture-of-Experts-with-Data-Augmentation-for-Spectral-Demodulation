@@ -164,21 +164,6 @@ if nn is not None:
                 wavelength_nm = 2.0 * thickness_nm * torch.sqrt(radicand) / orders
             return wavelength_nm
 
-        def physical_derivatives(self, temperature_c, salinity_ppt):
-
-            t = temperature_c.reshape(-1).detach().clone().requires_grad_(True)
-            s = salinity_ppt.reshape(-1).detach().clone().requires_grad_(True)
-            troughs = self.predicted_troughs_nm(t, s)
-            grad_t, grad_s = [], []
-            for column in range(troughs.shape[1]):
-                dt, ds = torch.autograd.grad(
-                    troughs[:, column].sum(), (t, s), create_graph=True, retain_graph=True
-                )
-                grad_t.append(dt)
-                grad_s.append(ds)
-            return torch.stack(grad_t, dim=1), torch.stack(grad_s, dim=1)
-
-
     def calibrate_antiresonance_prior(
         tracked_centers_nm: Iterable[float],
         reference_temperature_c: float,

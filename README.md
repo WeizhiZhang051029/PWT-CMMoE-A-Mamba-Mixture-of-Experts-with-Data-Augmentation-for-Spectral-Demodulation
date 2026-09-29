@@ -217,7 +217,6 @@ outputs/
 ├── pretrain/
 │   ├── pretrained_moe_best.pt
 │   ├── normalization.npz
-│   ├── synthetic_quality.json
 │   └── pretrain_summary.json
 └── adapter/
     ├── best_adapter.pt
@@ -229,7 +228,7 @@ The outputs include:
 
 * trained model checkpoints;
 * generated candidate spectra;
-* PCST quality reports, confidence weights, and selection records;
+* PCST-selected synthetic spectra and confidence weights;
 * normalization statistics and training summaries;
 * CATB task-weight and gradient-conflict history.
 

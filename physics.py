@@ -604,35 +604,6 @@ def select_cmi_pcqd(
         confidence=confidence.astype(np.float32),
         audit=audit,
     )
-def _covariance(x: np.ndarray) -> np.ndarray:
-    x = np.asarray(x, dtype=np.float64)
-    if x.ndim != 2 or len(x) < 2:
-        raise ValueError("expected at least two samples with shape [n, d]")
-    return np.atleast_2d(np.cov(x, rowvar=False))
-
-
-def frechet_distance(reference: np.ndarray, generated: np.ndarray) -> float:
-
-    reference = np.asarray(reference, dtype=np.float64)
-    generated = np.asarray(generated, dtype=np.float64)
-    if reference.ndim != 2 or generated.ndim != 2 or reference.shape[1] != generated.shape[1]:
-        raise ValueError("reference and generated must be 2-D with matching dimensions")
-    mean_delta = reference.mean(axis=0) - generated.mean(axis=0)
-    cov_r, cov_g = _covariance(reference), _covariance(generated)
-    product = cov_r @ cov_g
-    eigenvalues = np.linalg.eigvals(product).real
-    covariance_mean_trace = float(np.sqrt(np.clip(eigenvalues, 0.0, None)).sum())
-    return float(mean_delta @ mean_delta + np.trace(cov_r) + np.trace(cov_g) - 2.0 * covariance_mean_trace)
-
-
-def quantile_l1_distance(reference: np.ndarray, generated: np.ndarray, quantiles: int = 101) -> float:
-
-    reference = np.asarray(reference, dtype=np.float64)
-    generated = np.asarray(generated, dtype=np.float64)
-    if reference.ndim != 2 or generated.ndim != 2 or reference.shape[1] != generated.shape[1]:
-        raise ValueError("reference and generated must be 2-D with matching dimensions")
-    grid = np.linspace(0.0, 1.0, quantiles)
-    return float(np.mean(np.abs(np.quantile(reference, grid, axis=0) - np.quantile(generated, grid, axis=0))))
 
 
 def _nearest_distances(query: np.ndarray, reference: np.ndarray, *, exclude_self: bool = False) -> np.ndarray:
@@ -652,21 +623,6 @@ def _nearest_distances(query: np.ndarray, reference: np.ndarray, *, exclude_self
             distance_sq[rows, np.arange(start, stop)] = np.inf
         distances[start:stop] = np.sqrt(distance_sq.min(axis=1))
     return distances
-
-
-def nearest_reference_coverage(reference: np.ndarray, generated: np.ndarray, percentile: float = 95.0) -> float:
-
-    reference = np.asarray(reference, dtype=np.float64)
-    generated = np.asarray(generated, dtype=np.float64)
-    if len(reference) < 3:
-        raise ValueError("reference needs at least three samples")
-    scale = reference.std(axis=0, keepdims=True)
-    scale[scale < 1e-8] = 1.0
-    ref = reference / scale
-    gen = generated / scale
-    radius = np.percentile(_nearest_distances(ref, ref, exclude_self=True), percentile)
-    gen_distance = _nearest_distances(gen, ref)
-    return float(np.mean(gen_distance <= radius))
 
 
 def real_manifold_distances(
@@ -749,25 +705,4 @@ def synthetic_acceptance_mask(
         "median_nearest_manifold_distance": float(np.median(nearest)),
         "trough_only_pass_fraction": float((trough_mae <= max_conditional_trough_mae_nm).mean()),
         "manifold_only_pass_fraction": float((nearest <= radius).mean()),
-    }
-
-
-def synthetic_quality_report(
-    real_features: np.ndarray,
-    synthetic_features: np.ndarray,
-    real_trough_features: np.ndarray,
-    synthetic_trough_features: np.ndarray,
-    observed_synthetic_wavelengths: np.ndarray,
-    expected_synthetic_wavelengths: np.ndarray,
-) -> dict:
-
-    observed = np.asarray(observed_synthetic_wavelengths, dtype=np.float64)
-    expected = np.asarray(expected_synthetic_wavelengths, dtype=np.float64)
-    if observed.shape != expected.shape:
-        raise ValueError("expected and observed synthetic trough arrays must match")
-    return {
-        "spectral_frechet_distance": frechet_distance(real_features, synthetic_features),
-        "spectral_real_manifold_coverage": nearest_reference_coverage(real_features, synthetic_features),
-        "trough_distribution_quantile_l1": quantile_l1_distance(real_trough_features, synthetic_trough_features),
-        "conditional_trough_mae_nm": float(np.mean(np.abs(observed - expected))),
     }
