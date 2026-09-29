@@ -206,8 +206,6 @@ PWT-CMMoE/
 └── README.md
 ```
 
-The repository contains the final training implementation only. Test, inference, and evaluation scripts are not included.
-
 ## 📈 Outputs
 
 All generated training artifacts are saved in the `outputs/` directory:
