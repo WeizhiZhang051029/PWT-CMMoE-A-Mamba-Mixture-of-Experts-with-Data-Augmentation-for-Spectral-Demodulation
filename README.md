@@ -133,7 +133,7 @@ Please update the dataset paths and relevant hyperparameters before running the 
 Run the complete PWT-CMMoE pipeline with:
 
 ```bash
-python scripts/train.py
+python train.py --config configs/config.yaml
 ```
 
 The pipeline sequentially:
@@ -145,18 +145,6 @@ The pipeline sequentially:
 5. optimizes CMMoE on measured spectra under CATB;
 6. evaluates joint temperature and salinity demodulation performance.
 
-### Ten-seed Repetition Reported in the Manuscript
-
-To reproduce the reported mean and standard deviation over independent random seeds,
-run the repetition driver (the default configuration defines seeds 1--10):
-
-```bash
-python scripts/repeat_experiments.py
-```
-
-It writes each isolated run under `outputs/repeated_runs/seed_XX/` and writes the
-aggregated test metrics to `outputs/repeated_runs/test_metrics_mean_std.json`.
-
 ### Stage-by-Stage Execution
 
 Each training stage can also be executed independently.
@@ -164,27 +152,27 @@ Each training stage can also be executed independently.
 #### 1. Train the Physics-Guided WGAN-GP
 
 ```bash
-python -m spectral_moe.train.train_gan \
+python train_gan.py \
   --config configs/config.yaml
 ```
 
 #### 2. Generate and Screen Synthetic Spectra
 
-Generate condition-labelled candidate spectra:
+Generate condition-labelled candidate spectra (PCST screening is performed during pretraining):
 
 ```bash
-python -m spectral_moe.train.generate_gan_synthetic \
+python train_gan.py --generate-only \
   --config configs/config.yaml \
   --checkpoint outputs/gan/gan_final.pt \
   --output outputs/gan/gan_synthetic.npz
 ```
 
-PCST screening and confidence weighting are performed according to the settings specified in `configs/config.yaml`.
+PCST screening and confidence weighting are performed by `pretrain_moe.py` according to the settings specified in `configs/config.yaml`.
 
 #### 3. Pretrain CMMoE
 
 ```bash
-python -m spectral_moe.train.pretrain_moe \
+python pretrain_moe.py \
   --config configs/config.yaml \
   --output-dir outputs/pretrain
 ```
@@ -192,7 +180,7 @@ python -m spectral_moe.train.pretrain_moe \
 #### 4. Perform CATB-Guided Optimization
 
 ```bash
-python -m spectral_moe.train.finetune_adapter \
+python finetune_adapter.py \
   --config configs/config.yaml \
   --pretrain-dir outputs/pretrain \
   --output-dir outputs/adapter
@@ -209,13 +197,14 @@ PWT-CMMoE/
 ├── data/
 │   ├── raw/
 │   └── labels.csv
-├── scripts/
-│   └── train.py
-├── spectral_moe/
-│   ├── data/
-│   ├── models/
-│   ├── train/
-│   └── evaluate/
+├── data.py
+├── physics.py
+├── gan.py
+├── moe.py
+├── train.py
+├── train_gan.py
+├── pretrain_moe.py
+├── finetune_adapter.py
 ├── outputs/
 ├── requirements.txt
 └── README.md
@@ -223,10 +212,13 @@ PWT-CMMoE/
 
 The main components are organized as follows:
 
-* `spectral_moe/data/`: data loading, wavelength-grid alignment, linear interpolation, normalization, and physics-feature extraction
-* `spectral_moe/models/`: physics-guided WGAN-GP, heterogeneous experts, sparse routing, Mamba modules, and adapters
-* `spectral_moe/train/`: spectrum generation, PCST screening, CMMoE pretraining, and CATB-guided optimization
-* `spectral_moe/evaluate/`: regression metrics, predictions, and model-analysis utilities
+* `data.py`: data loading, wavelength-grid alignment, linear interpolation, normalization, and shared dataset utilities
+* `physics.py`: physics-feature extraction, PCST screening, physical consistency, and synthetic-data quality utilities
+* `gan.py`: physics-guided WGAN-GP, anti-resonance PINN, and GAN components
+* `moe.py`: heterogeneous experts, sparse routing, bidirectional Mamba, and adapters
+* `train_gan.py`: WGAN-GP training and condition-labelled spectrum generation
+* `pretrain_moe.py`: PCST screening and CMMoE pretraining
+* `finetune_adapter.py`: CATB-guided Adapter fine-tuning
 
 ## 📈 Outputs
 
@@ -236,16 +228,17 @@ All generated artifacts are saved in the `outputs/` directory:
 outputs/
 ├── gan/
 │   ├── gan_final.pt
-│   └── gan_synthetic.npz
+│   ├── gan_synthetic.npz
+│   └── pinn_calibration.json
 ├── pretrain/
-│   ├── checkpoints/
-│   ├── training_logs/
-│   └── validation_metrics/
+│   ├── pretrained_moe_best.pt
+│   ├── normalization.npz
+│   ├── synthetic_quality.json
+│   └── pretrain_summary.json
 ├── adapter/
-│   ├── fine_tuned_checkpoints/
-│   ├── predictions/
-│   └── evaluation_metrics/
-└── figures/
+│   ├── best_adapter.pt
+│   ├── training_summary.json
+│   └── mtl_conflict_history.json
 ```
 
 The outputs include:
